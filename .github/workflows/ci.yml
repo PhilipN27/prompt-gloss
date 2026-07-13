@@ -11,10 +11,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # pnpm version comes from package.json "packageManager"; do not also set
+      # `version` here or action-setup errors on the duplicate source.
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: 11
 
       - name: Setup Node
         uses: actions/setup-node@v4
