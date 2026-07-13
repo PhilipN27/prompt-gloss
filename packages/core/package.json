@@ -1,0 +1,20 @@
+{
+  "name": "@prompt-gloss/core",
+  "version": "0.1.0",
+  "description": "Card store, matcher, and injection budget for Gloss. Pure Node, zero UI/Agent-SDK deps.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "vitest run"
+  }
+}
