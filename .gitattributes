@@ -1,0 +1,10 @@
+# Normalize line endings to LF in the repo. Keeps diffs clean across
+# Windows/macOS/Linux contributors and keeps the shell git hooks runnable.
+* text=auto eol=lf
+
+# Binary assets (add as needed) should not be normalized.
+*.png binary
+*.jpg binary
+*.gif binary
+*.woff binary
+*.woff2 binary
