@@ -141,3 +141,21 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# Test output
+test-results/
+playwright-report/
+blob-report/
+/playwright/.cache/
+
+# Editor cruft
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# NOTE: test-fixture .gloss/ cards used by the matcher eval ARE committed
+# in this repo (see TESTING.md). Do not ignore .gloss/ here.
