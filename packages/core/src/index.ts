@@ -15,3 +15,4 @@ export {
   type NewCardInput,
   type UpdateCardInput
 } from "./store.js";
+export { matchMessage, normalize, tokenize, stemFold } from "./matcher.js";
