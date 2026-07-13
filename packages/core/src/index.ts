@@ -16,3 +16,10 @@ export {
   type UpdateCardInput
 } from "./store.js";
 export { matchMessage, normalize, tokenize, stemFold } from "./matcher.js";
+export {
+  InjectionLog,
+  packInjection,
+  DEFAULT_BUDGET,
+  type BudgetOptions,
+  type PackResult
+} from "./budget.js";
