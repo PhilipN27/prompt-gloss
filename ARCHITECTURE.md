@@ -282,7 +282,11 @@ Given the matched cards for one user message:
    the card if the running total stays ≤ `GLOSS_INJECT_BUDGET`; otherwise
    **skip it and keep going** (a smaller, older card may still fit).
 4. Record `{ slug, updated }` for every injected card in the session's
-   injection log (drives step 1 and the UI indicator).
+   injection log (drives step 1 and the UI indicator). The log is in-memory
+   and scoped to the server process: a restart resets dedup, so a card may be
+   injected once more into a resumed conversation. Accepted for v1 — worst
+   case is one duplicate injection per card, and a resumed session may have
+   been compacted anyway.
 5. Emit the payload:
 
 ```text
@@ -364,8 +368,13 @@ add remote-access features (ROADMAP.md non-goals).
 - **Hook contract drift.** The `UserPromptSubmit` `additionalContext` shape is
   verified against current docs but the SDK moves fast — implement the hook
   behind a small `Injector` interface in `packages/server` so the fallback
-  (§3) is a one-file swap. Write one integration test that asserts injected
-  context actually reaches the (fake) agent.
+  (§3) is a one-file swap. Be precise about what each test layer proves: the
+  fake agent implements the **same `Injector` boundary**, so integration/e2e
+  tests verify the pipeline up to that boundary — they cannot exercise the
+  real SDK hook, which never fires in fake mode. The real hook wiring is
+  covered by a manual smoke check against the live SDK (real API key, one
+  message, confirm the card content influenced the response) — run it before
+  any release and after any Agent SDK version bump.
 - **Selection UX edge cases.** Selections spanning multiple messages, inside
   code blocks, or collapsing on scroll — v1 policy: single-message selections
   only; the affordance hides on empty/cross-message selections.
