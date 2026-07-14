@@ -210,8 +210,12 @@ the same payload shape captured from the live CLI probe (TERMINAL.md §2.1:
   unreadable index, corrupted session state file → empty stdout, **exit 0**
   (never exit 2 — that erases the user's prompt), error appended to
   `.gloss/.state/hook-errors.log`.
-- **Skip switch:** `GLOSS_SKIP_HOOK=1` in the environment → empty stdout,
-  exit 0, no state written (TERMINAL.md §4.5).
+- **Skip switch (both modes):** `GLOSS_SKIP_HOOK=1` in the environment → empty
+  stdout, exit 0, no state/log write — checked **before** parsing stdin, for
+  **both** the normal `UserPromptSubmit` invocation **and** `--session-start`
+  (no framing `additionalContext` either). This is what keeps the v1 web-app
+  SDK session from double-injecting when the file hook is also installed
+  (TERMINAL.md §4.5).
 - **Concurrent append:** two hook processes injecting simultaneously into the
   same project → `injections.jsonl` contains both records with no interleaved
   or corrupted lines; both `sessions/*.json` files intact (TERMINAL.md §4.2).
@@ -302,6 +306,13 @@ release PR description.
    `add`, and a hand-edited file → all five inject in one `claude` session.
 7. **Uninstall:** `npx prompt-gloss uninstall` → no Gloss settings entries
    remain, cards intact, `claude` prompts run hook-free.
+8. **SDK ↔ settings-hook coexistence (§4.5):** in a project where the v1 web
+   app runs **and** `npx prompt-gloss init` has installed the file hook, send
+   one web-app message with a matching term → the card injects **exactly once**
+   (the in-process `SdkInjector` hook), and the settings file hook stays silent
+   because `SdkInjector` armed `GLOSS_SKIP_HOOK=1` via `Options.env`. Phase 0
+   proved the mechanism manually (2026-07-14, SDK 0.3.207); this is the standing
+   regression check.
 
 ## How agents run the suite
 
