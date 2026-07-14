@@ -16,10 +16,13 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
 
+      # Node 22: pnpm 11 (pinned via packageManager) requires Node >= 22.13.
+      # This honors the repo's engines ">=20"; TESTING.md's "Node 20" predates
+      # the pnpm 11 pin. See the impl report's spec-clarifications note.
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: pnpm
 
       - name: Install
