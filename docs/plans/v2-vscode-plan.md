@@ -309,3 +309,45 @@ the PR description. Wiring checks: root `tsconfig` references include
 `.vsix` locally. Then `/commit-push-pr` (title "v2 phase C: gloss-terminal
 extension"). Flag the human-only live-smoke items: real terminal-selection
 capture in VS Code AND Cursor (TESTING.md § live smoke).
+
+---
+
+## Wave 2 — outcome (Claude gated)
+
+All three slices landed as a gated Codex pipeline; every gate was run by Claude
+with real commands (Codex's own runs used sandbox shims for esbuild, so Claude
+re-verified each): `pnpm check` exit 0, `pnpm --filter gloss-terminal build`
+(both bundles), `pnpm --filter gloss-terminal test:vscode` green in a real VS
+Code 1.128.1 host, `vsce package` produces a `.vsix`.
+
+- Slice 1 `0b7889d`: scaffold + section 7.1 contributions + two esbuild bundles.
+- Slice 2 `c8bf868`: capture (7.2), provenance ring buffer (7.3), core store
+  access (7.4), React webview reusing panel-ui, section 6 save feedback.
+- Slice 3 `2d5bbad`: `@vscode/test-electron` suite + ubuntu/xvfb CI job; **fix**
+  found by the suite — the panel viewsContainer lacked a mandatory `icon` so VS
+  Code orphaned the card panel to Explorer; added `media/gloss.svg`.
+- Fix round `1e2a914`: the integration `/break-it` dispositions (below).
+
+### Integration /break-it — 11 findings, dispositions
+
+| # | Finding | Severity | Disposition |
+|---|---|---|---|
+| 1 | Provenance misses sessions started before activation | blocker | Fixed — `onStartupFinished` |
+| 2 | `pendingDraft` raced by concurrent capture | blocker | Fixed — per-capture `id` correlation |
+| 3 | Workspace resolved at save, not capture (multi-root mis-target) | blocker | Fixed — folder pinned at capture; multi-root-without-cwd errors |
+| 4 | No-selection turns stale clipboard into a card | should-fix | Fixed — active-terminal + clipboard sentinel |
+| 5 | Clipboard non-text formats not preserved on round-trip | should-fix | Accepted — VS Code clipboard API is text-only (platform limit; TERMINAL.md risk #10) |
+| 6 | Edits lost if save fails | should-fix | Fixed — re-open with submitted fields |
+| 7 | Edit-match uses stale `getIndex()` → duplicates | should-fix | Fixed — `rebuildIndex()` |
+| 8 | ANSI/control codes not stripped from provenance | should-fix | Fixed — stateful stripper |
+| 9 | Edit overwrites card `source`/`origin` (violates section 5) | should-fix | Fixed — update omits `source`; only create stamps origin |
+| 10 | Excerpt truncation can split surrogate pairs | nit | Fixed — code-point slicing |
+| 11 | Subscriptions accumulate on re-resolve/save | nit | Fixed — instance-owned + disposed |
+
+### Human-only live smoke (TESTING.md live-smoke — not harness-testable)
+
+- Real terminal-selection capture (highlight text in an integrated terminal
+  running `claude`, keybinding/menu → panel → save) in **VS Code AND Cursor**.
+- The shell-integration provenance buffer producing a real `source.message`.
+- The card panel rendering in the **panel** area (the harness asserts the
+  manifest, not placement).
