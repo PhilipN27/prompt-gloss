@@ -11,8 +11,7 @@
   },
   "packageManager": "pnpm@11.1.1",
   "pnpm": {
-    "onlyBuiltDependencies": ["esbuild"],
-    "ignoredBuiltDependencies": ["uiohook-napi"]
+    "onlyBuiltDependencies": ["esbuild", "uiohook-napi"]
   },
   "scripts": {
     "dev": "pnpm --parallel --filter \"@prompt-gloss/server\" --filter \"@prompt-gloss/web\" dev",
