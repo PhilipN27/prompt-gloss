@@ -67,7 +67,9 @@ growth team. Do not add new queries without an index review.
 
 ## Quick start
 
-Prerequisites: Node ≥ 20, pnpm (`corepack enable`), an `ANTHROPIC_API_KEY`.
+Prerequisites: Node ≥ 20, pnpm (`corepack enable`), and Anthropic credentials —
+an `ANTHROPIC_API_KEY`, or a logged-in [Claude Code](https://claude.com/claude-code)
+CLI (the Agent SDK picks up its credentials automatically).
 
 ```bash
 git clone https://github.com/PhilipN27/prompt-gloss.git
