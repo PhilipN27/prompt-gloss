@@ -138,9 +138,12 @@ function loadSessionLog(path: string): InjectionLog {
   } catch {
     return new InjectionLog();
   }
-  const parsed = JSON.parse(raw) as Record<string, unknown>;
-  // Unknown schema version → start fresh (worst case one duplicate injection).
-  if (parsed.version !== 1) return new InjectionLog();
+  const parsed = JSON.parse(raw) as Record<string, unknown> | null;
+  // Wrong shape or unknown schema version → start fresh (worst case one
+  // duplicate injection). Only unparseable JSON takes the error path.
+  if (parsed === null || typeof parsed !== "object" || parsed.version !== 1) {
+    return new InjectionLog();
+  }
   return InjectionLog.fromJSON(parsed.injected);
 }
 
@@ -297,7 +300,9 @@ function logError(projectDir: string, err: unknown): void {
     ensureStateDir(projectDir);
     // Truncated: V8 parse errors quote their input, and this file must never
     // accumulate prompt text (privacy) or grow without bound.
-    const detail = (err instanceof Error ? (err.stack ?? err.message) : String(err)).slice(0, 500);
+    const detail = (err instanceof Error ? (err.stack ?? err.message) : String(err))
+      .slice(0, 500)
+      .replace(/\s+/g, " ");
     appendFileSync(
       join(stateDir(projectDir), "hook-errors.log"),
       `${new Date().toISOString()} ${detail}\n`

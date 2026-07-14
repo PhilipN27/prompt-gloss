@@ -159,6 +159,16 @@ describe("session dedup across invocations", () => {
     expect(res.stdout).not.toBe("");
   });
 
+  it("a session state file containing JSON null is treated as empty (fresh inject)", () => {
+    const dir = makeProject();
+    writeCard(dir, { slug: "xyz" });
+    mkdirSync(join(stateDir(dir), "sessions"), { recursive: true });
+    writeFileSync(sessionFile(dir, "sess-default"), "null");
+    const res = runHook(dir, JSON.stringify(promptPayload(dir, "about xyz")));
+    expect(res.status).toBe(0);
+    expect(res.stdout).not.toBe("");
+  });
+
   it("self-gitignores .gloss/.state when the hook creates it", () => {
     const dir = makeProject();
     writeCard(dir, { slug: "xyz" });
