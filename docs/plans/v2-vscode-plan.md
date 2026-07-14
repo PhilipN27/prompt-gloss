@@ -165,3 +165,147 @@ base reset (`box-sizing: border-box`) and define the `--gloss-*` custom
 properties (bound to VS Code `--vscode-*` theme variables) before/around the
 imported `card-panel.css`, so the panel renders correctly without the web app's
 globals.
+
+---
+
+## Wave 2 — `packages/vscode` extension (`gloss-terminal`)
+
+**Sequencing decision (Claude, architect).** The three slices below are NOT
+independent: all three write `packages/vscode/package.json` and `src/extension.ts`,
+and there is hard ordering (tests need capture needs scaffold). Fanning them out
+concurrently into one shared worktree would scramble results — exactly what the
+`/parallel-team` independence rule says to flag. So Wave 2 runs as a **gated
+Codex pipeline**: Slice 1 → Claude gate → Slice 2 → Claude gate → Slice 3 →
+Claude gate. Still the Codex lane (Codex implements all three); Claude
+architects/reviews/gates each.
+
+### Pinned contracts for Wave 2 (Claude-owned — do not change; flag if needed)
+
+**Core (in-process, no server/HTTP — §7.4):**
+`new CardStore(workspaceFolderFsPath)` → `.getIndex()`, `.rebuildIndex()`,
+`.create({term, aliases?, body, source})`, `.update(slug, patch)`,
+`.delete(slug)`, `.get(slug)`, `.list()`. Edit-mode detection: build/get the
+index, `matchMessage(span, index): string[]`; non-empty ⇒ open the first match
+in edit mode (mirrors v1 `POST /api/match`). Never reimplement matching/slugging.
+
+**Provenance (§5):** every card saved by the extension sets
+`source.origin = "vscode-terminal"`, `source.span = <selection>`,
+`source.message = <≤200-char excerpt from the provenance buffer, "" if none>`.
+
+**panel-ui (already shipped Wave 1):** `import { CardPanel, draftFromCard,
+draftFromSelection, type PanelDraft } from "@prompt-gloss/panel-ui"` +
+`@prompt-gloss/panel-ui/card-panel.css`. Do not modify panel-ui.
+
+**Webview ↔ host message protocol (pinned):**
+```ts
+// host → webview
+{ type: "open"; draft: PanelDraft }
+// webview → host
+{ type: "ready" }                                                   // on mount
+{ type: "save"; input: { term: string; aliases: string[]; body: string } }
+{ type: "delete"; slug: string }                                    // edit mode
+{ type: "close" }
+```
+The webview React entry mounts `CardPanel`, feeds it the `draft` from the last
+`open`, and translates `onSave/onDelete/onClose` into the messages above. The
+host performs all disk I/O via core (webview has no fs/core access). On `save`,
+the host chooses create vs update by `draft.slug` (null ⇒ create), stamps
+`origin: "vscode-terminal"`, then (§6) shows a VS Code toast + status-bar flash
+and closes the panel. On `delete`, `CardStore.delete(slug)`.
+
+**Distribution (§7.5):** extension id `prompt-gloss.gloss-terminal`; bundles
+core + panel-ui (esbuild from TS source, hook pattern); works with zero project
+npm installs.
+
+### Slice 1 — @codex scaffold + contributions (§7.1)
+
+Own: `packages/vscode/{package.json, tsconfig.json, .vscodeignore, .gitignore,
+esbuild.mjs, src/extension.ts}` + root `tsconfig.json` reference + root
+`.gitignore` (ignore `packages/vscode/{dist,out,.vscode-test}`).
+
+- `package.json` contributions EXACTLY per §7.1: `activationEvents` for the
+  command; `contributes.commands` → `gloss.captureSelection` ("Gloss: attach
+  context to selection"); `contributes.keybindings` → `ctrl+alt+g` /
+  `cmd+alt+g` (mac), `"when": "terminalFocus && terminalTextSelected"`;
+  `contributes.menus["terminal/context"]` → same command + same `when`;
+  `contributes.viewsContainers` + `contributes.views` → a `gloss.cardPanel`
+  `WebviewView` in the **panel** area; register it with
+  `retainContextWhenHidden: true`. `engines.vscode` pinned; `main` →
+  `./dist/extension.js`. Scripts: `build` (esbuild both bundles + tsc typecheck),
+  `package` (vsce), `test:vscode` (placeholder until Slice 3).
+- `esbuild.mjs`: TWO bundles — (a) host: `src/extension.ts` → `dist/extension.js`,
+  `platform:"node"`, `format:"cjs"`, `external:["vscode"]`, bundle core; (b)
+  webview: `src/webview/index.tsx` → `dist/webview.js`, `platform:"browser"`,
+  bundle react/react-dom + `@prompt-gloss/panel-ui` (alias to its `src`, hook
+  pattern) + the CSS. (Slice 1 may stub the webview entry; Slice 2 fills it.)
+- `src/extension.ts`: `activate()` registers the `gloss.captureSelection`
+  command (Slice-1 body may be a typed stub that reveals the panel) and the
+  `WebviewViewProvider` for `gloss.cardPanel`; `deactivate()`. Clean disposal.
+- Wiring: add `{ "path": "packages/vscode" }` to root `tsconfig.json`
+  references. Do NOT add any `*.test.ts` under `packages/vscode/src` (the `unit`
+  vitest glob is `packages/*/src/**/*.test.ts` — extension tests live in
+  `packages/vscode/test/` in Slice 3).
+- **Gate:** `pnpm install` clean; `pnpm check` green (extension typechecks, no
+  vitest leakage); `pnpm --filter gloss-terminal build` produces both bundles;
+  `.vsix` packs (`npx vsce package`). Report real output.
+
+### Slice 2 — @codex capture + provenance + webview (§7.2–§7.4, §5, §6)
+
+Own: `packages/vscode/src/{capture.ts, provenance.ts, cardService.ts,
+webview/index.tsx, webview/html.ts, messaging.ts}`; edit `src/extension.ts`
+(wire the command → capture → panel) and `package.json` (add deps:
+`@prompt-gloss/core`, `@prompt-gloss/panel-ui`, `react`, `react-dom`; devDeps
+for esbuild/types). Depends on Slice 1 merged.
+
+- `capture.ts` — the §7.2 sequence exactly: save `env.clipboard.readText()`;
+  `executeCommand("workbench.action.terminal.copySelection")`; read clipboard →
+  `span`; **restore** the saved clipboard; look up `span` in the provenance ring
+  → `message`; reveal the panel prefilled; if `matchMessage(span, index)`
+  non-empty, open edit mode with `draftFromCard(firstMatch)`.
+- `provenance.ts` — §7.3: subscribe `window.onDidStartTerminalShellExecution`,
+  stream `execution.read()` into a **per-terminal 32 KB ring buffer**; on
+  capture, newest chunk containing `span` → ≤200-char excerpt; shell integration
+  inactive ⇒ `message = ""` and the card still saves (degrade, don't block).
+  Dispose subscriptions on deactivate; drop buffers on terminal close.
+- `cardService.ts` — core store access (§7.4): `CardStore` against the workspace
+  folder of the **active terminal's cwd** (multi-root aware); create/update/
+  delete; edit-mode match. Stamp `origin:"vscode-terminal"`.
+- `webview/` — mounts `CardPanel` (Slice-2 fills the Slice-1 stub), implements
+  the pinned message protocol, and the **#5/#6 theming**: the webview HTML sets
+  `box-sizing:border-box` and defines the `--gloss-*` vars mapped to
+  `--vscode-*` theme tokens; strict CSP; `asWebviewUri` for `dist/webview.js`
+  and the CSS. On save: toast + status-bar flash (§6).
+- **Gate:** `pnpm check` green; both bundles build; a scripted capture path is
+  unit-coverable (Slice 3 asserts it). Report real output.
+
+### Slice 3 — @codex extension test suite + CI (TESTING.md "Extension tests")
+
+Own: `packages/vscode/test/**` (`@vscode/test-electron` runner + suites),
+`packages/vscode/package.json` `test:vscode` script + test devDeps, root
+`.github/workflows/ci.yml` (add an `extension` job: ubuntu + xvfb). Depends on
+Slices 1–2 merged.
+
+- Suites (place in `packages/vscode/test/`, NOT `src/`): activation;
+  contributions asserted against the packaged `package.json` (command,
+  keybinding, menu, view); capture with a **pre-seeded clipboard** (harness
+  can't select real terminal text — boundary rule) → user clipboard restored
+  after capture, panel opens prefilled, **Save writes the card via core to the
+  workspace `.gloss/` (assert on disk)**, editing an existing term opens edit
+  mode; webview ↔ host `postMessage` round-trip snapshot.
+- Real-terminal selection capture + the shell-integration provenance buffer are
+  **live-smoke items** — document them as untestable in the harness (boundary
+  rule), do not fake the terminal.
+- CI: `extension` job on ubuntu with `xvfb-run`; builds the extension, runs
+  `test:vscode`. Keep it a required check.
+- **Gate:** `pnpm test:vscode` green locally (Windows can run
+  `@vscode/test-electron` headed — no xvfb needed off-Linux); `pnpm check`
+  still green. Report real output.
+
+### Integration gate (Claude, after Slice 3)
+
+`/break-it` on the full `packages/vscode` diff; log findings + dispositions in
+the PR description. Wiring checks: root `tsconfig` references include
+`packages/vscode` (+ `packages/panel-ui`, done); `npx vsce package` builds a
+`.vsix` locally. Then `/commit-push-pr` (title "v2 phase C: gloss-terminal
+extension"). Flag the human-only live-smoke items: real terminal-selection
+capture in VS Code AND Cursor (TESTING.md § live smoke).
