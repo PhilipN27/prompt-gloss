@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # pnpm version comes from package.json "packageManager"; do not also set
+      # `version` here or action-setup errors on the duplicate source.
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      # Node 22: pnpm 11 (pinned via packageManager) requires Node >= 22.13.
+      # This honors the repo's engines ">=20"; TESTING.md's "Node 20" predates
+      # the pnpm 11 pin. See the impl report's spec-clarifications note.
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Matcher eval (golden set)
+        run: pnpm eval:matcher
+
+      - name: E2E (Playwright, fake-agent mode)
+        run: |
+          pnpm --filter @prompt-gloss/web exec playwright install --with-deps chromium
+          pnpm test:e2e

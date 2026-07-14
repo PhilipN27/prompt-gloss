@@ -1,0 +1,40 @@
+{"name": "exact single-token term", "message": "I want a dashboard that helps me build xyz", "expect": ["xyz"]}
+{"name": "case-insensitive term", "message": "What is XYZ again?", "expect": ["xyz"]}
+{"name": "term adjacent to closing quote and period", "message": "ship the \"xyz\".", "expect": ["xyz"]}
+{"name": "term followed by comma", "message": "xyz, please, then deploy", "expect": ["xyz"]}
+{"name": "no substring match on longer token (suffix)", "message": "the xyzabc module is unrelated", "expect": []}
+{"name": "no substring match on longer token (prefix)", "message": "we renamed it to prefixxyz last week", "expect": []}
+{"name": "alias resolves to owning card", "message": "the metrics panel is slow again", "expect": ["xyz"]}
+{"name": "multi-word alias case-insensitive", "message": "open the XYZ Dashboard view", "expect": ["xyz"]}
+{"name": "term and its alias dedupe to one card", "message": "xyz and the metrics panel both lag", "expect": ["xyz"]}
+{"name": "multi-word term exact", "message": "wire the billing engine into checkout", "expect": ["billing-engine"]}
+{"name": "multi-word term plural stem", "message": "we run two billing engines in parallel", "expect": ["billing-engine"]}
+{"name": "multi-word term with extra internal whitespace in message", "message": "the billing   engine restarted", "expect": ["billing-engine"]}
+{"name": "multi-word term non-consecutive tokens do not match", "message": "billing was fine but the engine died", "expect": []}
+{"name": "single-word alias of billing card", "message": "the billing service returned 500", "expect": ["billing-engine"]}
+{"name": "plural of single-token term stems", "message": "compare the two gateways side by side", "expect": ["gateway"]}
+{"name": "possessive of single-token term stems", "message": "the gateway's TLS cert expired", "expect": ["gateway"]}
+{"name": "lookalike shorter token does not match (gate vs gateway)", "message": "leave the gate open for the courier", "expect": []}
+{"name": "multi-word alias of gateway card", "message": "the api gateway dropped the request", "expect": ["gateway"]}
+{"name": "underscore term matched as guarded literal", "message": "the analytics_rollup job runs hourly", "expect": ["analytics-rollup"]}
+{"name": "underscore term inside a longer identifier does not match", "message": "see my_analytics_rollup_v2 for the shadow copy", "expect": []}
+{"name": "spaced form does not match the underscore term", "message": "our analytics rollups finished late", "expect": []}
+{"name": "alias of rollup card matches even when underscore form absent", "message": "the rollup table needs a vacuum", "expect": ["analytics-rollup"]}
+{"name": "status page multi-word term matches", "message": "the status page is down during the incident", "expect": ["status-page"]}
+{"name": "bare status does not match status page and is not stemmed away", "message": "what is the status of the deploy?", "expect": []}
+{"name": "status (ends in -us) is not stem-folded into a match", "message": "the job status looks green", "expect": []}
+{"name": "two cards match in one message", "message": "wire xyz into the billing engine before Friday", "expect": ["billing-engine", "xyz"]}
+{"name": "three cards match in one message", "message": "the metrics panel reads analytics_rollup through the gateway", "expect": ["analytics-rollup", "gateway", "xyz"]}
+{"name": "empty message matches nothing", "message": "", "expect": []}
+{"name": "whitespace-only message matches nothing", "message": "   \t  ", "expect": []}
+{"name": "unrelated prose matches nothing", "message": "let us refactor the parser and add more tests", "expect": []}
+{"name": "term appears in a code-fence-like inline span", "message": "call `xyz()` from the handler", "expect": ["xyz"]}
+{"name": "possessive of multi-word term head noun", "message": "the billing engine's ledger is authoritative", "expect": ["billing-engine"]}
+{"name": "plural alias resolves and stems (billing services)", "message": "both billing services agreed on the total", "expect": ["billing-engine"]}
+{"name": "capitalized multi-word term at sentence start", "message": "Billing Engine owns proration now", "expect": ["billing-engine"]}
+{"name": "gateway plural alias (api gateways) matches", "message": "we sharded the api gateways by region", "expect": ["gateway"]}
+{"name": "no match when only a stem fragment appears", "message": "the gat in the fence is broken", "expect": []}
+{"name": "word term does not match inside a snake_case identifier", "message": "call api_gateway_v2 from the router", "expect": []}
+{"name": "word term does not match inside a leading-underscore identifier", "message": "the _gateway helper is internal", "expect": []}
+{"name": "underscore term still matches as a whole token", "message": "kick off the analytics_rollup job", "expect": ["analytics-rollup"]}
+{"name": "multi-word term still matches around punctuation after underscore fix", "message": "the billing engine, again", "expect": ["billing-engine"]}

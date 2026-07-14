@@ -1,0 +1,13 @@
+#!/bin/sh
+# Enforce a conventional-commit-ish subject line <= 72 chars.
+# The subject is the first non-comment line of the commit message.
+msg_file="$1"
+subject=$(grep -v '^#' "$msg_file" | sed '/^[[:space:]]*$/d' | head -n 1)
+
+len=$(printf '%s' "$subject" | wc -c | tr -d ' ')
+if [ "$len" -gt 72 ]; then
+  echo "commit-msg hook: subject line is $len chars (max 72):" >&2
+  echo "  $subject" >&2
+  exit 1
+fi
+exit 0
