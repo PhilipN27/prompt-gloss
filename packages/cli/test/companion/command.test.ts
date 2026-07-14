@@ -209,6 +209,13 @@ describe("runCompanion — first-hotkey project picker (no --project)", () => {
     // The picker page lists the registered project.
     const page = await fetch(`${handle.baseUrl}/panel?pick=1&span=gateway`);
     expect(await page.text()).toContain(project);
+
+    // Break-it F1: the picker server must NEVER serve the card form (which would
+    // POST cards to its throwaway dir) — even when `pick=1` is lost in transit.
+    const noPick = await fetch(`${handle.baseUrl}/panel?span=gateway`);
+    const noPickHtml = await noPick.text();
+    expect(noPickHtml).toContain("Choose a project");
+    expect(noPickHtml).not.toContain("New context card");
   });
 
   it("rebinds to the chosen project: /api/companion/project returns its panel URL and later captures target it", async () => {

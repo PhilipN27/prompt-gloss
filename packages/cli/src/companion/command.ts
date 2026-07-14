@@ -7,17 +7,22 @@
 //
 // Project targeting (§8.2): an explicit `--project` binds the server to that
 // project immediately. With no `--project`, the companion starts a *picker*
-// server; the first hotkey opens the picker page, and selecting a project
-// rebinds the companion to a project-bound server (`onProjectSelected`) for that
-// capture and every subsequent one. The flow reads the active server's base URL
-// and the current project through a mutable `session`, so the rebind needs no
-// flow reconstruction.
+// server (bound to a private throwaway dir, and picker-only so it never serves
+// the card form); the first hotkey opens the picker page, and selecting a
+// project rebinds the companion to a project-bound server (`onProjectSelected`)
+// for that capture and every subsequent one. The flow reads the active server's
+// base URL and the current project through a mutable `session`, so the rebind
+// needs no flow reconstruction.
 //
-// Real dependencies (adapter, opener, notifier, server) are injectable so the
-// wiring — including hotkey registration/disposal and the picker rebind — is
-// testable without loading uiohook-napi or opening a real window (TESTING.md).
+// Lifecycle safety (break-it 2026-07-14): server startup that races `stop()`
+// self-closes; a superseded project server is retired to bound accumulation; a
+// failed autostart write never orphans the daemon; and `stop()` waits for an
+// in-flight capture while a stop-guard prevents opening a panel against an
+// already-closed server.
 
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { CaptureFlow } from "./flow.js";
 import { selectAdapter, currentEnv, type AdapterEnv, type CaptureAdapter } from "./select.js";
 import { startPanelServer, type PanelServer } from "./server-embed.js";
@@ -66,7 +71,7 @@ function panelUrl(baseUrl: string, span: string): string {
 export async function runCompanion(opts: CompanionOptions = {}): Promise<CompanionHandle> {
   const log = opts.log ?? ((line: string) => console.log(line));
   const env = opts.env ?? currentEnv();
-  const opener = opts.opener ?? createAppModeOpener(log);
+  const rawOpener = opts.opener ?? createAppModeOpener(log);
   const notifier = opts.notifier ?? createOsNotifier(log);
   const startServer = opts.startServer ?? startPanelServer;
   const degraded: CompanionHandle = { baseUrl: null, stop: async () => undefined };
@@ -91,45 +96,71 @@ export async function runCompanion(opts: CompanionOptions = {}): Promise<Compani
     log(`Gloss companion: permission needed — ${cap.remediation}`);
   }
 
-  // --- Mutable session + server lifecycle -----------------------------------
-  // `session.projectDir` null means "no project chosen yet" → the flow opens the
-  // picker. The picker server is bound to a throwaway dir purely to host the
-  // picker page; its /api/cards is never exercised before a project is chosen.
-  const flowRef: { flow?: CaptureFlow } = {};
+  // --- Server lifecycle (stop-safe) -----------------------------------------
+  let stopped = false;
   const openServers = new Set<PanelServer>();
+  // A private, per-process throwaway dir hosts the picker server. It is never a
+  // real project (the picker server is picker-only, so its /api/cards is never
+  // reached by the UI); using a private mkdtemp — not shared /tmp — keeps any
+  // stray write off a world-readable path (break-it F1).
+  let pickerPlaceholder: string | undefined;
+
+  const flowRef: { flow?: CaptureFlow } = {};
   const session: { server: PanelServer; projectDir: string | null } = {
     server: undefined as unknown as PanelServer,
     projectDir: opts.projectDir ?? null
   };
+  let projectServer: PanelServer | undefined; // the current project-bound server (retired on rebind)
 
-  const onProjectSelected = async (
-    selection: ProjectPickerSelection
-  ): Promise<ProjectPickerResult> => {
-    // Bind a fresh server to the chosen project and make it the active target.
-    // The former picker server is retired on stop() (not here — it is currently
-    // handling this very request).
-    const server = await startBoundServer(selection.projectDir);
-    session.server = server;
-    session.projectDir = selection.projectDir;
-    return { panelUrl: panelUrl(server.baseUrl, selection.span) };
-  };
-
-  async function startBoundServer(projectDir: string): Promise<PanelServer> {
+  async function startBoundServer(projectDir: string, pickerOnly: boolean): Promise<PanelServer> {
     const server = await startServer({
       projectDir,
       hooks: { onCardSaved: (e) => flowRef.flow?.onCardSaved(e) },
       panelRoutes: {
         ...(opts.homeDir ? { homeDir: opts.homeDir } : {}),
+        pickerOnly,
         onProjectSelected
       },
       log
     });
+    // If stop() already ran while this was starting, don't leak it (break-it F2).
+    if (stopped) {
+      await server.close().catch(() => undefined);
+      return server;
+    }
     openServers.add(server);
     return server;
   }
 
-  // Initial server: the chosen project, or a throwaway host for the picker.
-  session.server = await startBoundServer(session.projectDir ?? tmpdir());
+  // Project selection is serialized so concurrent picks can't tear the session
+  // or accumulate servers; the superseded project server (if any) is retired
+  // (break-it F4). The picker server survives until stop().
+  let selectLock: Promise<unknown> = Promise.resolve();
+  const onProjectSelected = (selection: ProjectPickerSelection): Promise<ProjectPickerResult> => {
+    const run = selectLock.then(async (): Promise<ProjectPickerResult> => {
+      const server = await startBoundServer(selection.projectDir, false);
+      const prior = projectServer;
+      projectServer = server;
+      session.server = server;
+      session.projectDir = selection.projectDir;
+      if (prior && prior !== server) {
+        openServers.delete(prior);
+        void prior.close().catch(() => undefined);
+      }
+      return { panelUrl: panelUrl(server.baseUrl, selection.span) };
+    });
+    selectLock = run.catch(() => undefined);
+    return run;
+  };
+
+  // Initial server: the chosen project, or a picker-only server on a private dir.
+  if (session.projectDir) {
+    session.server = await startBoundServer(session.projectDir, false);
+    projectServer = session.server;
+  } else {
+    pickerPlaceholder = mkdtempSync(join(tmpdir(), "gloss-picker-"));
+    session.server = await startBoundServer(pickerPlaceholder, true);
+  }
 
   const endpoints: PanelEndpoints = {
     get baseUrl() {
@@ -138,6 +169,9 @@ export async function runCompanion(opts: CompanionOptions = {}): Promise<Compani
     panelPath: "/panel",
     pickerPath: "/panel"
   };
+  // Stop-guarded opener: after stop(), a late-resolving capture must not launch
+  // a browser against an already-closed server (break-it F5).
+  const opener: PanelOpener = { open: async (url) => (stopped ? undefined : rawOpener.open(url)) };
   const flow = new CaptureFlow({
     selection: adapter.selection,
     projects: {
@@ -151,13 +185,30 @@ export async function runCompanion(opts: CompanionOptions = {}): Promise<Compani
   });
   flowRef.flow = flow;
 
+  const cleanupPlaceholder = (): void => {
+    if (pickerPlaceholder) {
+      try {
+        rmSync(pickerPlaceholder, { recursive: true, force: true });
+      } catch {
+        // best-effort cleanup of the throwaway picker dir
+      }
+    }
+  };
   const closeAll = async (): Promise<void> => {
-    await Promise.allSettled([...openServers].map((s) => s.close()));
+    stopped = true;
+    const servers = [...openServers];
     openServers.clear();
+    await Promise.allSettled(servers.map((s) => s.close()));
+    cleanupPlaceholder();
   };
 
+  // Track the in-flight capture so stop() can await it (break-it F5).
+  let inFlight: Promise<void> = Promise.resolve();
   const accelerator = opts.accelerator ?? defaultAccelerator(env.platform);
-  const reg = await adapter.hotkey.register(accelerator, () => flow.onHotkey());
+  const reg = await adapter.hotkey.register(accelerator, () => {
+    inFlight = flow.onHotkey();
+    return inFlight;
+  });
   if (!reg.ok) {
     log(`Gloss companion: couldn't bind the hotkey (${accelerator}). ${reg.detail}`);
     log("  Falling back to the CLI rung: `prompt-gloss add`.");
@@ -166,12 +217,21 @@ export async function runCompanion(opts: CompanionOptions = {}): Promise<Compani
     return degraded;
   }
 
+  // Autostart is a nice-to-have: a failed write must never orphan the running
+  // daemon (break-it F3).
   if (opts.installAutostart) {
-    await installAutostart({
-      platform: env.platform,
-      ...(opts.projectDir ? { projectDir: opts.projectDir } : {}),
-      log
-    });
+    try {
+      await installAutostart({
+        platform: env.platform,
+        ...(opts.projectDir ? { projectDir: opts.projectDir } : {}),
+        log
+      });
+    } catch (err) {
+      log(
+        `Gloss companion: autostart setup failed (${err instanceof Error ? err.message : String(err)}). ` +
+          "The companion is running; add it to login items manually."
+      );
+    }
   }
 
   const where = session.projectDir ? `project: ${session.projectDir}` : "pick a project on the first hotkey";
@@ -181,7 +241,9 @@ export async function runCompanion(opts: CompanionOptions = {}): Promise<Compani
       return session.server.baseUrl;
     },
     stop: async () => {
+      stopped = true; // block new panel opens before we start tearing down
       await reg.dispose();
+      await inFlight.catch(() => undefined);
       await closeAll();
     }
   };

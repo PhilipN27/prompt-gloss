@@ -314,6 +314,14 @@ export function createMacosAdapter(_env: AdapterEnv, overrides: Partial<MacosAda
           mod.uIOhook.on("keydown", listener);
           mod.uIOhook.start();
         } catch (err) {
+          // .start() threw after .on(): tear down the installed listener before
+          // degrading, so we don't leak it (break-it F7).
+          try {
+            mod.uIOhook.off?.("keydown", listener);
+            mod.uIOhook.stop();
+          } catch {
+            // best-effort cleanup
+          }
           return {
             ok: false,
             detail: `${REGISTER_FAILURE_DETAIL} (${describeError(err)})`,

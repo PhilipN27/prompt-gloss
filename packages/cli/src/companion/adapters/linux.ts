@@ -262,6 +262,10 @@ function monitorPortalResponse(requestPath: string, budgetMs: number): Promise<s
     const finish = (value: string | null) => {
       if (settled) return;
       settled = true;
+      // Clear the (possibly 60s) budget timer on early resolution — otherwise a
+      // ref'd timer keeps the CLI process alive after the companion degrades
+      // (break-it F8). `timer` is always assigned before any child event fires.
+      clearTimeout(timer);
       try {
         child.kill();
       } catch {
@@ -276,7 +280,7 @@ function monitorPortalResponse(requestPath: string, budgetMs: number): Promise<s
         finish(out);
       }
     });
-    setTimeout(() => finish(out.includes(requestPath) ? out : null), budgetMs);
+    const timer = setTimeout(() => finish(out.includes(requestPath) ? out : null), budgetMs);
   });
 }
 
@@ -527,6 +531,14 @@ function createUiohookHotkeyRegistrar(origin: string, loadUiohook: UiohookLoader
         uIOhook.on("keydown", listener);
         uIOhook.start();
       } catch (err) {
+        // .start() threw after .on(): remove the installed listener before
+        // degrading, so we don't leak it (break-it F7).
+        try {
+          uIOhook.removeListener?.("keydown", listener);
+          uIOhook.stop();
+        } catch {
+          // best-effort cleanup
+        }
         return {
           ok: false,
           detail: `Failed to start the X11 key listener: ${err instanceof Error ? err.message : String(err)}.`,
@@ -764,11 +776,11 @@ function computeEffectiveRung(hotkey: HotkeyFact, primary: PrimaryFact, clipboar
   };
 }
 
-/** Arms the clipboard-freshness baseline exactly once per adapter instance,
- *  as early as possible (kicked off eagerly at adapter creation, mirroring
- *  the Windows adapter's "arm on creation" — TERMINAL.md Slice 1) so a
- *  legitimate copy-then-hotkey press that happens before this daemon ever
- *  needed the fallback still reads as "changed" rather than "the baseline". */
+/** Arms the clipboard-freshness baseline exactly once per adapter instance, on
+ *  the first clipboard-fallback capture (NOT at construction — break-it F6, so
+ *  `doctor`/`selectAdapter` stay side-effect-free). The first fallback capture
+ *  thus arms from the then-current clipboard; a subsequent copy-then-hotkey
+ *  reads as "changed". */
 function armFreshnessOnce(deps: LinuxAdapterDeps, state: WaylandSharedState): Promise<void> {
   state.freshnessReady ??= (async () => {
     const read = await deps.run("wl-paste", ["--no-newline"], { timeoutMs: 1500 });
@@ -798,8 +810,11 @@ async function captureViaClipboardFreshness(deps: LinuxAdapterDeps, state: Wayla
 }
 
 function createWaylandAdapter(deps: LinuxAdapterDeps): CaptureAdapter {
+  // Construction is side-effect-free (break-it F6): the freshness baseline is
+  // armed lazily on the first clipboard-fallback capture (armFreshnessOnce in
+  // captureViaClipboardFreshness), NOT eagerly here — so merely selecting the
+  // adapter (e.g. `doctor`) never spawns wl-paste.
   const state: WaylandSharedState = {};
-  void armFreshnessOnce(deps, state);
 
   const selection: SelectionSource = {
     origin: "wayland-primary",

@@ -173,6 +173,37 @@ All native capture (uiohook chords, clipboard/pasteboard/PRIMARY reads, the
 gdbus portal, real toasts/windows/autostart) is **fails-closed and LIVE-SMOKE
 only** — every slice flagged that its native surface is unverified in CI.
 
+## Break-it dispositions (Codex adversarial pass, 2026-07-14)
+
+Codex cleared the load-bearing invariants (`onCardSaved` throw-safety, picker
+XSS-escaping + registry-only project validation, flow reentrancy, freshness
+edges, route precedence, the no-cwd-default, no top-level uiohook import) and
+raised 8 findings — all fixed:
+
+- **F1 (High)** picker URL lost `&pick=1` through `cmd.exe start`, then the card
+  form saved to the shared-tmpdir picker server → caret-escape cmd
+  metacharacters in `opener.ts`; `pickerOnly` so the picker server never serves
+  the card form (`picker.ts`); private `mkdtemp` placeholder cleaned on stop.
+- **F2 (High)** `stop()` could orphan a server started by an in-flight pick →
+  `stopped` flag + `startBoundServer` self-closes late servers; `closeAll`
+  snapshots-then-clears atomically.
+- **F3 (High)** autostart write failure orphaned the live daemon → wrapped
+  non-fatal.
+- **F4 (Med)** concurrent picks raced + accumulated servers → serialized
+  selection lock; superseded project server retired.
+- **F5 (Med)** `stop()` didn't wait for an in-flight capture → stop-guarded
+  opener (no-op after stop) + `stop()` awaits the capture.
+- **F6 (Med)** construction did clipboard I/O (could hang `doctor`) → Windows
+  `Get-Clipboard` bounded with a 1.5s timeout; Wayland no longer arms at
+  construction. **Accepted residual:** the Windows adapter still reads the
+  clipboard once (bounded) at construction to arm freshness, so `doctor`
+  performs a bounded local clipboard read on Windows. A daemon-start `prime()`
+  lifecycle (construct pure; only the running companion arms) is the clean
+  follow-up.
+- **F7 (Med)** adapters left listeners installed if `.start()` threw →
+  windows/macos/linux register catches now tear down the partial listeners.
+- **F8 (Med)** Wayland left a ref'd 60s portal timer → cleared on early resolve.
+
 ## Live-smoke matrix (HUMAN-only — beyond CI's input boundary, §14 / TESTING.md)
 
 CI verifies the injection/flow/wiring path only. The per-OS CAPTURE mechanisms

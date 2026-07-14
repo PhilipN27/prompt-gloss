@@ -42,10 +42,16 @@ function defaultBrowserCommand(
   switch (platform) {
     case "darwin":
       return { command: "open", args: [url] };
-    case "win32":
-      // `start` is a cmd.exe built-in. The empty argument is its required
-      // window-title slot when the target URL is quoted by CreateProcess.
-      return { command: "cmd.exe", args: ["/d", "/s", "/c", "start", "", url] };
+    case "win32": {
+      // `start` is a cmd.exe built-in (empty arg = its window-title slot). The
+      // URL is already percent-encoded (URLSearchParams), so its only raw `&`
+      // are query separators — cmd.exe would treat those as command separators
+      // and truncate the URL (break-it F1). Caret-escape cmd metacharacters so
+      // the full URL reaches the browser. No shell is used, and the span is
+      // percent-encoded, so there is no injection surface.
+      const escaped = url.replace(/[&^|<>()]/g, (c) => `^${c}`);
+      return { command: "cmd.exe", args: ["/d", "/s", "/c", "start", "", escaped] };
+    }
     case "linux":
       return { command: "xdg-open", args: [url] };
     default:

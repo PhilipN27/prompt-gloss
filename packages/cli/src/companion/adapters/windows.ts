@@ -58,7 +58,10 @@ function stripTrailingNewline(text: string): string {
 function readClipboardViaPowerShell(): string {
   try {
     const result = spawnSync("powershell.exe", ["-NoProfile", "-Command", "Get-Clipboard"], {
-      encoding: "utf8"
+      encoding: "utf8",
+      // Bound the read: a stalled clipboard provider must never hang the caller
+      // (e.g. `prompt-gloss doctor`, which constructs the adapter) — break-it F6.
+      timeout: 1500
     });
     if (result.error || result.status !== 0) return "";
     return stripTrailingNewline(result.stdout ?? "");
@@ -184,6 +187,15 @@ export function createWindowsAdapter(
           uiohook.uIOhook.on("keyup", onKeyup);
           uiohook.uIOhook.start();
         } catch (err) {
+          // If .start() throws after .on(), the listeners are already installed
+          // — tear them down before degrading, so we don't leak them (break-it F7).
+          try {
+            uiohook.uIOhook.removeListener("keydown", onKeydown);
+            uiohook.uIOhook.removeListener("keyup", onKeyup);
+            uiohook.uIOhook.stop();
+          } catch {
+            // best-effort cleanup
+          }
           return {
             ok: false,
             detail: `uiohook-napi failed to start — run \`prompt-gloss doctor\` (${errMessage(err)})`,

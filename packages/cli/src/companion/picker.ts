@@ -22,6 +22,13 @@ export interface CompanionPanelRouteOptions {
   /** Test seam for ~/.gloss/projects.json. Defaults to the current user's home. */
   readonly homeDir?: string;
   /**
+   * When true, `/panel` ALWAYS renders the project picker (never the card
+   * form), regardless of the `?pick` query. The picker server is bound to a
+   * throwaway dir, so it must never serve a card form that would POST to
+   * `/api/cards` (break-it F1). Project-bound servers leave this false.
+   */
+  readonly pickerOnly?: boolean;
+  /**
    * Integration seam: stop/rebind the embedded server to `projectDir`, retain
    * that target for subsequent captures, and return the new panel URL.
    */
@@ -212,8 +219,10 @@ export function registerCompanionPanelRoutes(
 ): void {
   app.get<{ Querystring: PanelQuery }>("/panel", async (request, reply) => {
     const span = typeof request.query.span === "string" ? request.query.span : "";
+    // `pickerOnly` forces the picker even if `?pick=1` was lost in transit
+    // (e.g. a browser-fallback launcher that mangles `&` — break-it F1).
     const page =
-      request.query.pick === "1"
+      opts.pickerOnly || request.query.pick === "1"
         ? renderProjectPickerPage(readProjectRegistry(opts.homeDir), span)
         : renderStandalonePanelPage(span);
     return reply.type("text/html; charset=utf-8").send(page);
