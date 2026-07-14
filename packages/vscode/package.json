@@ -42,7 +42,8 @@
       "panel": [
         {
           "id": "gloss",
-          "title": "Gloss"
+          "title": "Gloss",
+          "icon": "media/gloss.svg"
         }
       ]
     },
@@ -59,7 +60,7 @@
   "scripts": {
     "build": "node esbuild.mjs && tsc -b --pretty false",
     "package": "vsce package",
-    "test:vscode": "echo \"VS Code extension tests arrive in Slice 3\""
+    "test:vscode": "pnpm --filter @prompt-gloss/core build && pnpm --filter @prompt-gloss/panel-ui build && tsc -p test/tsconfig.json --pretty false && node test/prepareOut.mjs && node out/test/runTest.js"
   },
   "dependenciesMeta": {
     "@vscode/vsce-sign": {
@@ -76,11 +77,16 @@
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^22.10.5",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "@types/vscode": "^1.93.0",
+    "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "3.2.2",
     "esbuild": "^0.24.2",
+    "glob": "^13.0.6",
+    "mocha": "^11.7.6",
     "typescript": "^5.7.3"
   }
 }

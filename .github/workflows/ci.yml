@@ -74,3 +74,29 @@ jobs:
 
       - name: CLI tests (init/uninstall settings merge, add/log/doctor)
         run: pnpm test:cli
+
+  # Real VS Code extension-host coverage. Linux needs a virtual display for
+  # Electron; local Windows/macOS runs stay headed and invoke test:vscode
+  # directly.
+  extension:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build extension
+        run: pnpm --filter gloss-terminal build
+
+      - name: Extension tests (real VS Code)
+        run: xvfb-run -a pnpm --filter gloss-terminal test:vscode
