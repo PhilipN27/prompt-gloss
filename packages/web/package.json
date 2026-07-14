@@ -9,7 +9,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "test:e2e": "playwright test --pass-with-no-tests"
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@prompt-gloss/core": "workspace:*",
