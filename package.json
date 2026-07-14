@@ -1,5 +1,5 @@
 {
-  "name": "prompt-gloss",
+  "name": "@prompt-gloss/monorepo",
   "version": "0.1.0",
   "private": true,
   "description": "Gloss any word in your prompt. Claude remembers what it means, forever.",
@@ -21,6 +21,7 @@
     "eval:matcher": "vitest run --project eval",
     "test:e2e": "pnpm --filter \"@prompt-gloss/web\" test:e2e",
     "test:hook": "pnpm --filter \"@prompt-gloss/hook\" build && vitest run --project hook",
+    "test:cli": "pnpm --filter \"@prompt-gloss/hook\" build && vitest run --project cli",
     "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm eval:matcher",
     "postinstall": "node scripts/install-hooks.mjs"
   },

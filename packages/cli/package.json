@@ -1,0 +1,28 @@
+{
+  "name": "prompt-gloss",
+  "version": "0.1.0",
+  "description": "Gloss any word in your prompt. Claude remembers what it means, forever. CLI: init/uninstall/add/log/doctor/web.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "prompt-gloss": "./dist/cli.js"
+  },
+  "main": "./dist/index.js",
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "pnpm --filter @prompt-gloss/hook build && tsc -b && node scripts/copy-bundle.mjs",
+    "prepack": "pnpm --filter @prompt-gloss/web build && pnpm run build",
+    "test": "vitest run --project cli"
+  },
+  "dependencies": {
+    "@fastify/static": "^10.1.0",
+    "@prompt-gloss/core": "workspace:*",
+    "@prompt-gloss/server": "workspace:*",
+    "jsonc-parser": "^3.3.1"
+  }
+}

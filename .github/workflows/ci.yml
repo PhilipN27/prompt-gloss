@@ -71,3 +71,6 @@ jobs:
 
       - name: Hook contract tests (real bundle)
         run: pnpm test:hook
+
+      - name: CLI tests (init/uninstall settings merge, add/log/doctor)
+        run: pnpm test:cli

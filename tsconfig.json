@@ -3,6 +3,7 @@
   "references": [
     { "path": "packages/core" },
     { "path": "packages/hook" },
+    { "path": "packages/cli" },
     { "path": "packages/server" },
     { "path": "packages/web" }
   ]
