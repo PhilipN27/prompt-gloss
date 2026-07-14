@@ -50,7 +50,10 @@ test("create card from a rendered assistant message selection", async ({
     expect(res.ok()).toBe(true);
     const card = await res.json();
     expect(card.term).toBe(term);
-    expect(card.source.span.length).toBeGreaterThan(0);
+    // Pin the captured span to the exact word selected via the DOM-range path,
+    // so a selection that grabbed the wrong text (or nothing) fails here rather
+    // than passing on a length>0 check.
+    expect(card.source.span).toBe("agent");
     expect(card.source.message.length).toBeGreaterThan(0);
   }).toPass();
 

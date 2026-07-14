@@ -7,8 +7,10 @@ import { defineConfig, devices } from "@playwright/test";
 // fake-agent mode (GLOSS_FAKE_AGENT=1) plus the Vite dev server, no API key,
 // no network. Previously gated behind GLOSS_E2E_FULL=1 as a placeholder while
 // no specs existed; specs now exist (packages/web/e2e/), so the webServer
-// block is always on. The env var is still honored (and still set by CI) so
-// nothing outside this file needs to change.
+// block is on by default. GLOSS_E2E_FULL is NOT set by CI — CI relies on this
+// default-on behavior. The var is honored only as an explicit local escape
+// hatch: set GLOSS_E2E_FULL=0 to skip the webServer stack (e.g. to run specs
+// against an already-running server).
 const fullStack = process.env.GLOSS_E2E_FULL !== "0";
 
 // One fresh temp project dir for the whole run, so `.gloss/` never lands
