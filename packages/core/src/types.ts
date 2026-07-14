@@ -17,7 +17,15 @@ export interface CardSource {
   span: string;
   /** <= 200-char excerpt of the message the span was selected in. */
   message: string;
+  /**
+   * Which surface created the card (TERMINAL.md §5). Optional and
+   * backward-compatible: absent = v1 web card. Never read by the matcher.
+   */
+  origin?: CardOrigin;
 }
+
+/** Card-creating surfaces (TERMINAL.md §5). */
+export type CardOrigin = "web" | "vscode-terminal" | "companion" | "cli";
 
 /**
  * A context card as it lives on disk plus its slug (the stable ID derived from
