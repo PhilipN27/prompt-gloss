@@ -156,6 +156,11 @@ describe("uninstall", () => {
     writeFileSync(settingsPath(dir), JSON.stringify({ model: "opus" }, null, 2));
     await runInit({ projectDir: dir, homeDir: makeHome() });
     await runUninstall({ projectDir: dir });
-    expect(readSettings(dir)).toEqual({ model: "opus" });
+    // Gloss entries gone; unrelated keys intact. The emptied event arrays
+    // remain as [] — uninstall never guesses whether a key predated init.
+    expect(readSettings(dir)).toEqual({
+      model: "opus",
+      hooks: { UserPromptSubmit: [], SessionStart: [] }
+    });
   });
 });

@@ -27,9 +27,9 @@ interface Settings {
 
 function glossCommands(settings: Settings, event: string): string[] {
   return (settings.hooks?.[event] ?? [])
-    .flatMap((g) => g.hooks)
-    .map((h) => h.command)
-    .filter((c) => c.includes(GLOSS_HOOK_MARKER));
+    .flatMap((g) => (g && Array.isArray(g.hooks) ? g.hooks : []))
+    .map((h) => h?.command)
+    .filter((c): c is string => typeof c === "string" && c.includes(GLOSS_HOOK_MARKER));
 }
 
 describe("mergeGlossEntries", () => {
@@ -102,6 +102,49 @@ describe("mergeGlossEntries", () => {
   it("throws on malformed JSON instead of clobbering the file", () => {
     expect(() => mergeGlossEntries("{not json")).toThrow();
   });
+
+  it("preserves untouched bytes verbatim: formatting, unicode escapes, key order", () => {
+    const original = '{\n    "caf\\u00e9" :  "\\u006fpus",\n    "zzz": 1,\n    "aaa": 2\n}\n';
+    const { text } = mergeGlossEntries(original);
+    // The original content survives byte-for-byte (only the hooks edit is new).
+    expect(text).toContain('"caf\\u00e9" :  "\\u006fpus"');
+    expect(text.indexOf('"zzz"')).toBeLessThan(text.indexOf('"aaa"'));
+    const parsed = JSON.parse(text) as Settings;
+    expect(parsed["café"]).toBe("opus");
+  });
+
+  it("refuses to edit a settings file whose hooks key has an unexpected shape", () => {
+    expect(() => mergeGlossEntries('{"hooks": []}')).toThrow(/unexpected shape/);
+    expect(() => mergeGlossEntries('{"hooks": "user-data"}')).toThrow(/unexpected shape/);
+    expect(() => mergeGlossEntries('{"hooks": {"UserPromptSubmit": {"hooks": []}}}')).toThrow(
+      /not an array/
+    );
+  });
+
+  it("detects an exec-form Gloss entry (args array) as already installed", () => {
+    const existing = {
+      hooks: {
+        UserPromptSubmit: [
+          {
+            hooks: [
+              { type: "command", command: "node", args: ["/p/.gloss/hook/gloss-hook.cjs"] }
+            ]
+          }
+        ]
+      }
+    };
+    const { text } = mergeGlossEntries(JSON.stringify(existing));
+    const parsed = JSON.parse(text) as Settings;
+    expect(parsed.hooks?.UserPromptSubmit).toHaveLength(1);
+  });
+
+  it("tolerates null groups and null hook entries without crashing", () => {
+    const weird = '{"hooks": {"UserPromptSubmit": [null, {"hooks": [null]}]}}';
+    const merged = mergeGlossEntries(weird);
+    const parsed = JSON.parse(merged.text) as Settings;
+    expect(glossCommands(parsed, "UserPromptSubmit")).toEqual([USER_PROMPT_SUBMIT_COMMAND]);
+    expect(() => removeGlossEntries(merged.text)).not.toThrow();
+  });
 });
 
 describe("removeGlossEntries", () => {
@@ -126,11 +169,12 @@ describe("removeGlossEntries", () => {
     expect(commands).toEqual(["echo unrelated"]);
   });
 
-  it("cleans up empty structures it created (no dangling hooks key)", () => {
+  it("leaves emptied event arrays as [] (never guesses whether the key predated init)", () => {
     const merged = mergeGlossEntries(null);
     const { text } = removeGlossEntries(merged.text);
     const parsed = JSON.parse(text) as Settings;
-    expect(parsed.hooks).toBeUndefined();
+    expect(parsed.hooks).toEqual({ UserPromptSubmit: [], SessionStart: [] });
+    expect(glossCommands(parsed, "UserPromptSubmit")).toEqual([]);
   });
 
   it("is a no-op on a file with no Gloss entries (changed=false)", () => {
@@ -143,5 +187,71 @@ describe("removeGlossEntries", () => {
   it("null input (missing file) is a no-op", () => {
     const { changed } = removeGlossEntries(null);
     expect(changed).toBe(false);
+  });
+
+  it("merge-then-unmerge restores the original semantics; untouched regions keep their bytes", () => {
+    const original =
+      '{\n  "model" :  "opus",\n  "hooks": {\n    "UserPromptSubmit": [],\n    "PreToolUse": [{"hooks": [{"type": "command", "command": "echo x"}]}]\n  }\n}\n';
+    const merged = mergeGlossEntries(original);
+    const removed = removeGlossEntries(merged.text);
+    // Semantic restore: the original document, plus the harmless empty
+    // SessionStart array left by the keep-empty-arrays policy.
+    const expected = JSON.parse(original) as { hooks: Record<string, unknown> };
+    expected.hooks.SessionStart = [];
+    expect(JSON.parse(removed.text)).toEqual(expected);
+    // Regions no edit ever touched keep their original bytes (odd spacing intact).
+    expect(removed.text).toContain('"model" :  "opus"');
+  });
+
+  it("never touches other events, even if their commands mention the marker path", () => {
+    const original = JSON.stringify(
+      {
+        hooks: {
+          PreToolUse: [
+            { hooks: [{ type: "command", command: "echo missing: .gloss/hook/gloss-hook.cjs" }] }
+          ]
+        }
+      },
+      null,
+      2
+    );
+    const { text, changed } = removeGlossEntries(original);
+    expect(changed).toBe(false);
+    expect(text).toBe(original);
+  });
+
+  it("removes an exec-form Gloss entry under the managed events", () => {
+    const original = JSON.stringify({
+      hooks: {
+        UserPromptSubmit: [
+          { hooks: [{ type: "command", command: "node", args: ["/p/.gloss/hook/gloss-hook.cjs"] }] }
+        ]
+      }
+    });
+    const { text, changed } = removeGlossEntries(original);
+    expect(changed).toBe(true);
+    expect(JSON.parse(text)).toEqual({ hooks: { UserPromptSubmit: [] } });
+  });
+
+  it("preserves matcher metadata on a group that keeps non-Gloss entries", () => {
+    const original = JSON.stringify({
+      hooks: {
+        SessionStart: [
+          {
+            matcher: "compact",
+            hooks: [
+              { type: "command", command: "echo keep" },
+              { type: "command", command: 'node "$CLAUDE_PROJECT_DIR/.gloss/hook/gloss-hook.cjs" --session-start' }
+            ]
+          }
+        ]
+      }
+    });
+    const { text } = removeGlossEntries(original);
+    const parsed = JSON.parse(text) as {
+      hooks: { SessionStart: Array<{ matcher?: string; hooks: Array<{ command: string }> }> };
+    };
+    expect(parsed.hooks.SessionStart[0]!.matcher).toBe("compact");
+    expect(parsed.hooks.SessionStart[0]!.hooks.map((h) => h.command)).toEqual(["echo keep"]);
   });
 });

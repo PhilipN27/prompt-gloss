@@ -8,13 +8,16 @@
     "prompt-gloss": "./dist/cli.js"
   },
   "main": "./dist/index.js",
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -b && node scripts/copy-bundle.mjs",
     "test": "vitest run --project cli"
   },
   "dependencies": {
     "@prompt-gloss/core": "workspace:*",
-    "@prompt-gloss/server": "workspace:*"
+    "@prompt-gloss/server": "workspace:*",
+    "jsonc-parser": "^3.3.1"
   }
 }
