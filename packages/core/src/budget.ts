@@ -54,6 +54,29 @@ export class InjectionLog {
   record(card: Pick<Card, "slug" | "updated">): void {
     this.lastInjectedUpdated.set(card.slug, card.updated);
   }
+
+  /** Plain slug → updated-ISO map, the file-backed twin's payload (TERMINAL.md §4.2). */
+  toJSON(): Record<string, string> {
+    return Object.fromEntries(this.lastInjectedUpdated);
+  }
+
+  /**
+   * Rebuild a log from a parsed JSON value. Total: corrupted input (non-object,
+   * non-string entries) degrades to skipping the bad parts — a broken session
+   * state file must never break the hook.
+   */
+  static fromJSON(value: unknown): InjectionLog {
+    const log = new InjectionLog();
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+      return log;
+    }
+    for (const [slug, updated] of Object.entries(value)) {
+      if (typeof updated === "string") {
+        log.lastInjectedUpdated.set(slug, updated);
+      }
+    }
+    return log;
+  }
 }
 
 function cardHeader(card: Card): string {

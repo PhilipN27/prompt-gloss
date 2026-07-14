@@ -22,6 +22,55 @@ function bodyOfTokens(tokens: number): string {
   return "x".repeat(tokens * 4);
 }
 
+describe("InjectionLog — toJSON / fromJSON (file-backed twin, TERMINAL.md §4.2)", () => {
+  it("round-trips: fromJSON(toJSON(log)) preserves dedup behavior", () => {
+    const log = new InjectionLog();
+    const a = { slug: "a", updated: "2026-07-13T01:00:00.000Z" };
+    const b = { slug: "b", updated: "2026-07-13T02:00:00.000Z" };
+    log.record(a);
+    log.record(b);
+
+    const twin = InjectionLog.fromJSON(log.toJSON());
+    expect(twin.shouldInject(a)).toBe(false);
+    expect(twin.shouldInject(b)).toBe(false);
+    // Updated bump still re-injects after the round trip.
+    expect(twin.shouldInject({ slug: "a", updated: "2026-07-13T03:00:00.000Z" })).toBe(true);
+    // Unseen card injects.
+    expect(twin.shouldInject({ slug: "c", updated: a.updated })).toBe(true);
+  });
+
+  it("toJSON returns a plain slug → updated-ISO map", () => {
+    const log = new InjectionLog();
+    log.record({ slug: "a", updated: "2026-07-13T01:00:00.000Z" });
+    expect(log.toJSON()).toEqual({ a: "2026-07-13T01:00:00.000Z" });
+  });
+
+  it("toJSON survives JSON.stringify/parse round trip", () => {
+    const log = new InjectionLog();
+    log.record({ slug: "a", updated: "2026-07-13T01:00:00.000Z" });
+    const twin = InjectionLog.fromJSON(JSON.parse(JSON.stringify(log.toJSON())));
+    expect(twin.shouldInject({ slug: "a", updated: "2026-07-13T01:00:00.000Z" })).toBe(false);
+  });
+
+  it("fromJSON tolerates corrupted input: non-objects yield an empty log", () => {
+    for (const bad of [null, undefined, 42, "nope", [], true]) {
+      const log = InjectionLog.fromJSON(bad);
+      expect(log.shouldInject({ slug: "a", updated: "2026-07-13T01:00:00.000Z" })).toBe(true);
+      expect(log.toJSON()).toEqual({});
+    }
+  });
+
+  it("fromJSON skips non-string entry values, keeping the valid ones", () => {
+    const log = InjectionLog.fromJSON({
+      good: "2026-07-13T01:00:00.000Z",
+      bad: 42,
+      worse: { nested: true },
+      alsoBad: null
+    });
+    expect(log.toJSON()).toEqual({ good: "2026-07-13T01:00:00.000Z" });
+  });
+});
+
 describe("packInjection — ordering", () => {
   it("packs most-recently-updated first", () => {
     const cards = [
