@@ -11,11 +11,16 @@
   "files": [
     "dist"
   ],
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
-    "build": "tsc -b && node scripts/copy-bundle.mjs",
+    "build": "pnpm --filter @prompt-gloss/hook build && tsc -b && node scripts/copy-bundle.mjs",
+    "prepack": "pnpm build",
     "test": "vitest run --project cli"
   },
   "dependencies": {
+    "@fastify/static": "^10.1.0",
     "@prompt-gloss/core": "workspace:*",
     "@prompt-gloss/server": "workspace:*",
     "jsonc-parser": "^3.3.1"

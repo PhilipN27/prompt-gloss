@@ -8,6 +8,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   writeFileSync
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -124,7 +125,75 @@ describe("init", () => {
   });
 });
 
+describe("init — both settings targets (TESTING.md)", () => {
+  for (const local of [false, true]) {
+    const label = local ? "settings.local.json (--local)" : "settings.json (default)";
+    it(`no file / unrelated hooks / idempotent re-run against ${label}`, async () => {
+      const dir = makeProject();
+      const home = makeHome();
+      mkdirSync(join(dir, ".claude"), { recursive: true });
+      writeFileSync(
+        settingsPath(dir, local),
+        JSON.stringify({
+          keep: true,
+          hooks: { PreToolUse: [{ hooks: [{ type: "command", command: "echo x" }] }] }
+        })
+      );
+      await runInit({ projectDir: dir, homeDir: home, local });
+      await runInit({ projectDir: dir, homeDir: home, local }); // idempotent
+      const settings = readSettings(dir, local);
+      expect(settings.keep).toBe(true);
+      expect((settings.hooks as Record<string, unknown>).PreToolUse).toBeDefined();
+      expect(glossEntries(settings)).toHaveLength(2);
+      // The other target was never created.
+      expect(existsSync(settingsPath(dir, !local))).toBe(false);
+    });
+  }
+});
+
+describe("init — /gloss command ownership", () => {
+  it("never overwrites a user-authored /gloss command; uninstall keeps it", async () => {
+    const dir = makeProject();
+    mkdirSync(join(dir, ".claude", "commands"), { recursive: true });
+    const userContent = "---\ndescription: my own gloss command\n---\n\ndo my thing\n";
+    writeFileSync(join(dir, ".claude", "commands", "gloss.md"), userContent);
+
+    await runInit({ projectDir: dir, homeDir: makeHome() });
+    expect(readFileSync(join(dir, ".claude", "commands", "gloss.md"), "utf8")).toBe(userContent);
+
+    await runUninstall({ projectDir: dir });
+    expect(readFileSync(join(dir, ".claude", "commands", "gloss.md"), "utf8")).toBe(userContent);
+  });
+});
+
+describe("init — projects registry hardening", () => {
+  it("preserves a malformed registry as .bak instead of clobbering it", async () => {
+    const dir = makeProject();
+    const home = makeHome();
+    mkdirSync(join(home, ".gloss"), { recursive: true });
+    writeFileSync(join(home, ".gloss", "projects.json"), "{corrupt!");
+    await runInit({ projectDir: dir, homeDir: home });
+
+    const files = readdirSync(join(home, ".gloss"));
+    expect(files.some((f) => f.startsWith("projects.json.bak-"))).toBe(true);
+    const registry = JSON.parse(readFileSync(join(home, ".gloss", "projects.json"), "utf8")) as {
+      projects: string[];
+    };
+    expect(registry.projects).toContain(dir);
+  });
+});
+
 describe("uninstall", () => {
+  it("sweeps a custom --settings-file target (mirror of init)", async () => {
+    const dir = makeProject();
+    const custom = join(dir, "custom-settings.json");
+    await runInit({ projectDir: dir, homeDir: makeHome(), settingsFile: custom });
+    expect(readFileSync(custom, "utf8")).toContain(GLOSS_HOOK_MARKER);
+
+    await runUninstall({ projectDir: dir, settingsFile: custom });
+    expect(readFileSync(custom, "utf8")).not.toContain(GLOSS_HOOK_MARKER);
+  });
+
   it("mirrors init: sweeps both settings files, removes hook/.state/command, keeps cards", async () => {
     const dir = makeProject();
     const home = makeHome();
