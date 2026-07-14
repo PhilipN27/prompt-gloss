@@ -148,6 +148,31 @@ Implement `createLinuxAdapter(env)`; detect X11 vs Wayland from `env`
 3. `/break-it` on the full branch diff; log findings + dispositions.
 4. `/commit-push-pr` — title "v2 phase D: OS companion".
 
+## Fan-out results (2026-07-14)
+
+All four slices landed against their own files; integration wired + green.
+
+- [x] **Slice 1 — Windows** _done: `adapters/windows.ts`, injectable clipboard
+  reader, freshness-gated capture, lazy uiohook (fails closed). 14 tests._
+- [x] **Slice 2 — macOS** _done: `adapters/macos.ts`, pasteboard save/restore in
+  `finally`, `blocked`≠`unsupported`, non-prompting `probe()` (unknown→blocked).
+  13 tests._
+- [x] **Slice 3 — Linux** _done: `adapters/linux.ts`, X11 PRIMARY + Wayland
+  hotkey-first (gdbus portal shell-out, fails closed), doctor-rich `probe()`.
+  28 tests._
+- [x] **Slice 4 — Panel plumbing** _done: `opener.ts` (chrome/msedge `--app` +
+  default-browser fallback), `notifier.ts` (per-OS toast/osascript/notify-send),
+  `autostart.ts` (Run key / LaunchAgent / XDG), `picker.ts` (standalone
+  `/panel` + picker, panel-ui absent). 23 tests._
+- [x] **Integration** _done: `server-embed.ts` registers the panel routes before
+  the SPA fallback; `command.ts` starts a picker server with no `--project` and
+  rebinds via `onProjectSelected` (session-backed, getter `baseUrl`). Full gate:
+  tsc 0, cli 154, unit 121, eval 41, eslint clean._
+
+All native capture (uiohook chords, clipboard/pasteboard/PRIMARY reads, the
+gdbus portal, real toasts/windows/autostart) is **fails-closed and LIVE-SMOKE
+only** — every slice flagged that its native surface is unverified in CI.
+
 ## Live-smoke matrix (HUMAN-only — beyond CI's input boundary, §14 / TESTING.md)
 
 CI verifies the injection/flow/wiring path only. The per-OS CAPTURE mechanisms

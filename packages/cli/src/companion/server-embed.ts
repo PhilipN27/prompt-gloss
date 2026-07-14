@@ -7,6 +7,7 @@
 import type { AddressInfo } from "node:net";
 import { buildServer, resolveConfig, type ServerHooks } from "@prompt-gloss/server";
 import { registerWebUi } from "../web-assets.js";
+import { registerCompanionPanelRoutes, type CompanionPanelRouteOptions } from "./picker.js";
 
 export interface PanelServerOptions {
   /** The resolved target project; cards are written under its `.gloss/`. */
@@ -15,6 +16,10 @@ export interface PanelServerOptions {
   readonly port?: number;
   /** Card-saved hook → the companion's OS notification (§6). */
   readonly hooks?: ServerHooks;
+  /** When set, serve the companion's standalone `/panel` + picker routes
+   *  (TERMINAL.md §8.3). Registered BEFORE the web-UI SPA fallback so `/panel`
+   *  resolves to the card form / picker rather than index.html. */
+  readonly panelRoutes?: CompanionPanelRouteOptions;
   readonly log?: (line: string) => void;
 }
 
@@ -28,6 +33,11 @@ export async function startPanelServer(opts: PanelServerOptions): Promise<PanelS
   const log = opts.log ?? (() => undefined);
   const config = resolveConfig({ projectDir: opts.projectDir, port: opts.port ?? 0 });
   const app = await buildServer(config, opts.hooks ?? {});
+  // Companion panel/picker routes first, so `/panel` and `/api/companion/*`
+  // win over the web-UI static wildcard + SPA notFound fallback.
+  if (opts.panelRoutes) {
+    registerCompanionPanelRoutes(app, opts.panelRoutes);
+  }
   await registerWebUi(app, log);
 
   await app.listen({ host: config.host, port: config.port });
