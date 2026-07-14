@@ -42,5 +42,5 @@ jobs:
 
       - name: E2E (Playwright, fake-agent mode)
         run: |
-          pnpm exec playwright install --with-deps chromium
+          pnpm --filter @prompt-gloss/web exec playwright install --with-deps chromium
           pnpm test:e2e
