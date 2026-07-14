@@ -1,34 +1,59 @@
+import type { CardSource } from "@prompt-gloss/core";
 import { draftFromCard, draftFromSelection, type PanelDraft } from "@prompt-gloss/panel-ui";
 import * as vscode from "vscode";
 import type { CardService } from "./cardService.js";
 import type { ProvenanceTracker } from "./provenance.js";
 
+export interface CaptureContext {
+  id: number;
+  draft: PanelDraft;
+  folderUri: vscode.Uri;
+  source: CardSource & { origin: "vscode-terminal" };
+}
+
 export async function captureSelection(
   provenance: ProvenanceTracker,
-  cardService: CardService
-): Promise<PanelDraft | null> {
+  cardService: CardService,
+  id: number
+): Promise<CaptureContext | null> {
+  const terminal = vscode.window.activeTerminal;
+  if (terminal === undefined) {
+    void vscode.window.showInformationMessage("Open an integrated terminal first");
+    return null;
+  }
+
   const saved = await vscode.env.clipboard.readText();
-  let span: string;
+  const sentinel = `__prompt_gloss_no_selection_${globalThis.crypto.randomUUID()}__`;
+  let copied: string;
 
   try {
+    await vscode.env.clipboard.writeText(sentinel);
     await vscode.commands.executeCommand("workbench.action.terminal.copySelection");
-    span = await vscode.env.clipboard.readText();
+    copied = await vscode.env.clipboard.readText();
   } finally {
     await vscode.env.clipboard.writeText(saved);
   }
 
-  span = span.trim();
-  if (span.length === 0) {
-    await vscode.window.showInformationMessage("Select terminal text first");
+  if (copied === sentinel) {
+    void vscode.window.showInformationMessage("Select terminal text first");
     return null;
   }
 
-  const message = provenance.excerptFor(vscode.window.activeTerminal, span);
-  const existing = await cardService.matchExisting(span);
-  if (existing === null) return draftFromSelection(span, message);
+  const span = copied.trim();
+  if (span.length === 0) {
+    void vscode.window.showInformationMessage("Select terminal text first");
+    return null;
+  }
 
+  const folderUri = cardService.resolveFolderUri(terminal);
+  const message = provenance.excerptFor(terminal, span);
+  const source = { span, message, origin: "vscode-terminal" } as const;
+  const existing = await cardService.matchExisting(span, folderUri);
   return {
-    ...draftFromCard(existing),
-    source: { span, message }
+    id,
+    draft:
+      existing === null ? draftFromSelection(span, message) : draftFromCard(existing),
+    folderUri,
+    source
   };
 }

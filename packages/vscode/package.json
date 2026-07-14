@@ -12,6 +12,7 @@
   },
   "main": "./dist/extension.js",
   "activationEvents": [
+    "onStartupFinished",
     "onCommand:gloss.captureSelection",
     "onView:gloss.cardPanel"
   ],

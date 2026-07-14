@@ -24,6 +24,7 @@ interface ViewContribution {
 }
 
 interface ExtensionManifest {
+  activationEvents: string[];
   contributes: {
     commands: CommandContribution[];
     keybindings: KeybindingContribution[];
@@ -49,6 +50,7 @@ suite("Activation and contributions", () => {
     );
     const manifest = JSON.parse(packageJson) as ExtensionManifest;
 
+    assert.ok(manifest.activationEvents.includes("onStartupFinished"));
     assert.ok(
       manifest.contributes.commands.some(
         (entry) => entry.command === "gloss.captureSelection"

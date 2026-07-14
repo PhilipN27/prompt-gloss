@@ -7,14 +7,14 @@ export interface SaveCardInput {
 }
 
 /** Messages sent by the extension host to the card-panel webview. */
-export type HostToWebviewMessage = { type: "open"; draft: PanelDraft };
+export type HostToWebviewMessage = { type: "open"; id: number; draft: PanelDraft };
 
 /** Messages sent by the card-panel webview to the extension host. */
 export type WebviewToHostMessage =
   | { type: "ready" }
-  | { type: "save"; input: SaveCardInput }
-  | { type: "delete"; slug: string }
-  | { type: "close" };
+  | { type: "save"; id: number; input: SaveCardInput }
+  | { type: "delete"; id: number; slug: string }
+  | { type: "close"; id: number };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -30,17 +30,22 @@ function isSaveCardInput(value: unknown): value is SaveCardInput {
   );
 }
 
+function isCaptureId(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+}
+
 export function isWebviewToHostMessage(value: unknown): value is WebviewToHostMessage {
   if (!isRecord(value) || typeof value.type !== "string") return false;
 
   switch (value.type) {
     case "ready":
-    case "close":
       return true;
+    case "close":
+      return isCaptureId(value.id);
     case "save":
-      return isSaveCardInput(value.input);
+      return isCaptureId(value.id) && isSaveCardInput(value.input);
     case "delete":
-      return typeof value.slug === "string";
+      return isCaptureId(value.id) && typeof value.slug === "string";
     default:
       return false;
   }

@@ -27,9 +27,11 @@ function suffixWithinBytes(value: string, maxBytes: number): string {
 
 class RollingBuffer {
   private readonly chunks: string[] = [];
+  private readonly controlStripper = new TerminalControlStripper();
   private sizeBytes = 0;
 
   append(chunk: string): void {
+    chunk = this.controlStripper.write(chunk);
     if (chunk.length === 0) return;
 
     this.chunks.push(chunk);
@@ -61,6 +63,102 @@ class RollingBuffer {
   }
 }
 
+type StripState =
+  | "text"
+  | "escape"
+  | "escape-intermediate"
+  | "csi"
+  | "osc"
+  | "osc-escape"
+  | "control-string"
+  | "control-string-escape";
+
+/** Stateful because shell-execution chunks can split an ANSI sequence. */
+class TerminalControlStripper {
+  private state: StripState = "text";
+
+  write(chunk: string): string {
+    let rendered = "";
+
+    for (const character of chunk) {
+      const codePoint = character.codePointAt(0);
+      if (codePoint === undefined) continue;
+
+      switch (this.state) {
+        case "text":
+          if (codePoint === 0x1b) {
+            this.state = "escape";
+          } else if (codePoint === 0x9b) {
+            this.state = "csi";
+          } else if (codePoint === 0x9d) {
+            this.state = "osc";
+          } else if (
+            codePoint === 0x90 ||
+            codePoint === 0x98 ||
+            codePoint === 0x9e ||
+            codePoint === 0x9f
+          ) {
+            this.state = "control-string";
+          } else if (
+            character === "\n" ||
+            character === "\r" ||
+            character === "\t" ||
+            (codePoint >= 0x20 && codePoint !== 0x7f && codePoint < 0x80) ||
+            codePoint > 0x9f
+          ) {
+            rendered += character;
+          }
+          break;
+        case "escape":
+          if (character === "[") {
+            this.state = "csi";
+          } else if (character === "]") {
+            this.state = "osc";
+          } else if (
+            character === "P" ||
+            character === "X" ||
+            character === "^" ||
+            character === "_"
+          ) {
+            this.state = "control-string";
+          } else if (codePoint >= 0x20 && codePoint <= 0x2f) {
+            this.state = "escape-intermediate";
+          } else if (codePoint === 0x1b) {
+            this.state = "escape";
+          } else {
+            this.state = "text";
+          }
+          break;
+        case "escape-intermediate":
+          if (codePoint >= 0x30 && codePoint <= 0x7e) this.state = "text";
+          else if (codePoint === 0x1b) this.state = "escape";
+          break;
+        case "csi":
+          if (codePoint >= 0x40 && codePoint <= 0x7e) this.state = "text";
+          else if (codePoint === 0x1b) this.state = "escape";
+          break;
+        case "osc":
+          if (codePoint === 0x07 || codePoint === 0x9c) this.state = "text";
+          else if (codePoint === 0x1b) this.state = "osc-escape";
+          break;
+        case "osc-escape":
+          if (character === "\\" || codePoint === 0x9c) this.state = "text";
+          else if (codePoint !== 0x1b) this.state = "osc";
+          break;
+        case "control-string":
+          if (codePoint === 0x9c) this.state = "text";
+          else if (codePoint === 0x1b) this.state = "control-string-escape";
+          break;
+        case "control-string-escape":
+          if (character === "\\" || codePoint === 0x9c) this.state = "text";
+          else if (codePoint !== 0x1b) this.state = "control-string";
+      }
+    }
+
+    return rendered;
+  }
+}
+
 function firstLineBreakAfter(value: string, from: number): number {
   const newline = value.indexOf("\n", from);
   const carriageReturn = value.indexOf("\r", from);
@@ -70,16 +168,21 @@ function firstLineBreakAfter(value: string, from: number): number {
 }
 
 function truncateAroundMatch(value: string, matchStart: number, spanLength: number): string {
-  if (value.length <= EXCERPT_MAX_CHARS) return value.trim();
+  const characters = [...value];
+  if (characters.length <= EXCERPT_MAX_CHARS) return value.trim();
 
-  const visibleSpanLength = Math.min(spanLength, EXCERPT_MAX_CHARS);
+  const matchStartInCodePoints = [...value.slice(0, matchStart)].length;
+  const spanLengthInCodePoints = [
+    ...value.slice(matchStart, matchStart + spanLength)
+  ].length;
+  const visibleSpanLength = Math.min(spanLengthInCodePoints, EXCERPT_MAX_CHARS);
   const surroundingChars = EXCERPT_MAX_CHARS - visibleSpanLength;
-  const preferredStart = matchStart - Math.floor(surroundingChars / 2);
+  const preferredStart = matchStartInCodePoints - Math.floor(surroundingChars / 2);
   const excerptStart = Math.min(
     Math.max(0, preferredStart),
-    value.length - EXCERPT_MAX_CHARS
+    characters.length - EXCERPT_MAX_CHARS
   );
-  return value.slice(excerptStart, excerptStart + EXCERPT_MAX_CHARS).trim();
+  return characters.slice(excerptStart, excerptStart + EXCERPT_MAX_CHARS).join("").trim();
 }
 
 /** Tracks recent shell-execution output independently for each terminal. */

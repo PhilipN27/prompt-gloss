@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
-import { readFile, readdir, rm } from "node:fs/promises";
+import { readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { CardStore } from "@prompt-gloss/core";
+import { draftFromCard } from "@prompt-gloss/panel-ui";
 import * as vscode from "vscode";
 import { captureSelection } from "../../src/capture.js";
 import { CardService } from "../../src/cardService.js";
@@ -17,102 +18,185 @@ function createProvenance(): {
   return { tracker: new ProvenanceTracker(context), subscriptions };
 }
 
+function workspaceFolderUri(): vscode.Uri {
+  const folder = vscode.workspace.workspaceFolders?.[0];
+  assert.ok(folder, "Expected the test host to open its temporary workspace folder.");
+  return folder.uri;
+}
+
+async function showTerminal(terminal: vscode.Terminal): Promise<void> {
+  terminal.show();
+  if (vscode.window.activeTerminal === terminal) return;
+
+  await new Promise<void>((resolve, reject) => {
+    const subscription = vscode.window.onDidChangeActiveTerminal((activeTerminal) => {
+      if (activeTerminal !== terminal) return;
+      clearTimeout(timeout);
+      subscription.dispose();
+      resolve();
+    });
+    const timeout = setTimeout(() => {
+      subscription.dispose();
+      reject(new Error("Timed out waiting for the test terminal to become active."));
+    }, 5000);
+
+    if (vscode.window.activeTerminal === terminal) {
+      clearTimeout(timeout);
+      subscription.dispose();
+      resolve();
+    }
+  });
+}
+
 suite("Capture and card persistence", () => {
   setup(async () => {
     await rm(join(workspaceRoot(), ".gloss"), { recursive: true, force: true });
   });
 
-  test("restores the seeded clipboard and saves the captured span via core", async () => {
+  test("rejects a stale clipboard when the active terminal has no selection", async () => {
     const cardService = new CardService();
     const originalClipboard = await vscode.env.clipboard.readText();
-    const span = "federated brewing";
+    const staleClipboard = "stale clipboard text";
     const provenance = createProvenance();
+    const terminal = vscode.window.createTerminal("Gloss no-selection test");
 
     try {
-      await vscode.env.clipboard.writeText(span);
+      await showTerminal(terminal);
+      await vscode.env.clipboard.writeText(staleClipboard);
 
-      // Boundary rule: the harness intentionally does not create or select text
-      // in a terminal. copySelection leaves this seed untouched, making it the
-      // captured span while still exercising VS Code's real clipboard API.
-      const draft = await captureSelection(provenance.tracker, cardService);
-
-      assert.ok(draft);
-      assert.equal(draft.slug, null);
-      assert.equal(draft.term, span);
-      assert.equal(draft.source.span, span);
-      assert.equal(await vscode.env.clipboard.readText(), span);
-
-      const saved = await cardService.save(
-        {
-          slug: draft.slug,
-          term: draft.term,
-          aliases: ["brew federation"],
-          body: "Captured context body"
-        },
-        draft.source
+      const captureContext = await captureSelection(
+        provenance.tracker,
+        cardService,
+        1
       );
 
-      assert.equal(saved.source.origin, "vscode-terminal");
-      const cardPath = join(workspaceRoot(), ".gloss", "cards", `${saved.slug}.md`);
-      const cardFile = await readFile(cardPath, "utf8");
-      assert.match(cardFile, /^term: federated brewing$/m);
-      assert.match(cardFile, /^\s+origin: vscode-terminal$/m);
-      assert.ok(cardFile.includes("\nCaptured context body\n"));
-
-      const persisted = await new CardStore(workspaceRoot()).get(saved.slug);
-      assert.ok(persisted);
-      assert.equal(persisted.term, span);
-      assert.equal(persisted.body, "Captured context body");
-      assert.equal(persisted.source.origin, "vscode-terminal");
+      assert.equal(captureContext, null);
+      assert.equal(await vscode.env.clipboard.readText(), staleClipboard);
+      assert.deepEqual(await new CardStore(workspaceRoot()).list(), []);
     } finally {
-      for (const subscription of provenance.subscriptions.reverse())
+      terminal.dispose();
+      for (const subscription of provenance.subscriptions.reverse()) {
         subscription.dispose();
+      }
       await vscode.env.clipboard.writeText(originalClipboard);
     }
   });
 
-  test("opens an existing term in edit mode and updates without duplication", async () => {
+  test("saves a captured terminal source to the pinned workspace folder", async () => {
     const root = workspaceRoot();
+    const folderUri = workspaceFolderUri();
+    const cardService = new CardService();
+    const span = "federated brewing";
+    const source = {
+      span,
+      message: "terminal output containing federated brewing",
+      origin: "vscode-terminal"
+    } as const;
+
+    const saved = await cardService.save(
+      {
+        slug: null,
+        term: span,
+        aliases: ["brew federation"],
+        body: "Captured context body"
+      },
+      folderUri,
+      source
+    );
+
+    assert.equal(saved.source.origin, "vscode-terminal");
+    const cardPath = join(root, ".gloss", "cards", `${saved.slug}.md`);
+    const cardFile = await readFile(cardPath, "utf8");
+    assert.match(cardFile, /^term: federated brewing$/m);
+    assert.match(cardFile, /^\s+origin: vscode-terminal$/m);
+    assert.ok(cardFile.includes("\nCaptured context body\n"));
+
+    const persisted = await new CardStore(root).get(saved.slug);
+    assert.ok(persisted);
+    assert.equal(persisted.term, span);
+    assert.equal(persisted.body, "Captured context body");
+    assert.deepEqual(persisted.source, source);
+  });
+
+  test("editing a web card preserves its original source and origin", async () => {
+    const root = workspaceRoot();
+    const folderUri = workspaceFolderUri();
     const store = new CardStore(root);
+    const originalSource = {
+      span: "shared glossary",
+      message: "Original web message excerpt",
+      origin: "web"
+    } as const;
     const existing = await store.create({
       term: "shared glossary",
       aliases: ["old alias"],
       body: "Old body",
-      source: { span: "shared glossary", message: "seed", origin: "cli" }
+      source: originalSource
     });
-    const originalClipboard = await vscode.env.clipboard.readText();
-    const provenance = createProvenance();
+    const cardService = new CardService();
+    const matched = await cardService.matchExisting(existing.term, folderUri);
 
-    try {
-      await vscode.env.clipboard.writeText(existing.term);
-      const cardService = new CardService();
-      const draft = await captureSelection(provenance.tracker, cardService);
+    assert.ok(matched);
+    const draft = draftFromCard(matched);
+    assert.deepEqual(draft.source, originalSource);
 
-      assert.ok(draft);
-      assert.equal(draft.slug, existing.slug);
-      assert.equal(draft.body, "Old body");
+    const updated = await cardService.save(
+      {
+        slug: draft.slug,
+        term: draft.term,
+        aliases: ["new alias"],
+        body: "Updated body"
+      },
+      folderUri,
+      {
+        span: existing.term,
+        message: "Fresh terminal output must not replace creation provenance",
+        origin: "vscode-terminal"
+      }
+    );
 
-      const updated = await cardService.save(
-        {
-          slug: draft.slug,
-          term: draft.term,
-          aliases: ["new alias"],
-          body: "Updated body"
-        },
-        draft.source
-      );
+    assert.equal(updated.slug, existing.slug);
+    assert.equal(updated.body, "Updated body");
+    assert.deepEqual(updated.source, originalSource);
+    assert.deepEqual((await store.get(existing.slug))?.source, originalSource);
+    assert.equal((await store.list()).length, 1);
+    assert.deepEqual(await readdir(join(root, ".gloss", "cards")), [
+      `${existing.slug}.md`
+    ]);
+  });
 
-      assert.equal(updated.slug, existing.slug);
-      assert.equal(updated.body, "Updated body");
-      assert.equal(updated.source.origin, "vscode-terminal");
-      assert.equal((await store.list()).length, 1);
-      assert.deepEqual(await readdir(join(root, ".gloss", "cards")), [
-        `${existing.slug}.md`
-      ]);
-    } finally {
-      for (const subscription of provenance.subscriptions.reverse())
-        subscription.dispose();
-      await vscode.env.clipboard.writeText(originalClipboard);
-    }
+  test("rebuilds a stale index before matching an out-of-band core card", async () => {
+    const root = workspaceRoot();
+    const folderUri = workspaceFolderUri();
+    const cardService = new CardService();
+
+    assert.equal(await cardService.matchExisting("out-of-band card", folderUri), null);
+
+    const externalStore = new CardStore(root);
+    const existing = await externalStore.create({
+      term: "out-of-band card",
+      aliases: [],
+      body: "Created outside the extension service",
+      source: {
+        span: "out-of-band card",
+        message: "created via another core consumer",
+        origin: "cli"
+      }
+    });
+
+    await writeFile(
+      join(root, ".gloss", "index.json"),
+      `${JSON.stringify({
+        version: 1,
+        generatedAt: new Date(0).toISOString(),
+        cards: []
+      })}\n`,
+      "utf8"
+    );
+
+    const matched = await cardService.matchExisting(existing.term, folderUri);
+    assert.ok(matched);
+    assert.equal(matched.slug, existing.slug);
+    assert.equal(draftFromCard(matched).slug, existing.slug);
   });
 });

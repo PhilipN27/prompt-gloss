@@ -8,10 +8,11 @@ suite("Webview to host contract", () => {
   test("accepts every valid webview message and rejects malformed payloads", () => {
     const valid: unknown[] = [
       { type: "ready" },
-      { type: "close" },
-      { type: "delete", slug: "federated-brewing" },
+      { type: "close", id: 1 },
+      { type: "delete", id: 2, slug: "federated-brewing" },
       {
         type: "save",
+        id: 3,
         input: { term: "federated brewing", aliases: ["brew"], body: "Context" }
       }
     ];
@@ -19,11 +20,21 @@ suite("Webview to host contract", () => {
       null,
       {},
       { type: "unknown" },
+      { type: "close" },
+      { type: "close", id: 0 },
       { type: "delete" },
-      { type: "delete", slug: 42 },
+      { type: "delete", id: 1, slug: 42 },
       { type: "save" },
-      { type: "save", input: { term: "term", aliases: "alias", body: "body" } },
-      { type: "save", input: { term: "term", aliases: ["alias", 42], body: "body" } }
+      {
+        type: "save",
+        id: 1,
+        input: { term: "term", aliases: "alias", body: "body" }
+      },
+      {
+        type: "save",
+        id: 1,
+        input: { term: "term", aliases: ["alias", 42], body: "body" }
+      }
     ];
 
     for (const message of valid) assert.equal(isWebviewToHostMessage(message), true);

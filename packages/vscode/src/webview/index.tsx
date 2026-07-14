@@ -12,12 +12,19 @@ declare function acquireVsCodeApi(): VsCodeApi;
 
 const vscode = acquireVsCodeApi();
 
+interface OpenPanel {
+  id: number;
+  draft: PanelDraft;
+}
+
 function WebviewApp(): JSX.Element | null {
-  const [draft, setDraft] = useState<PanelDraft | null>(null);
+  const [openPanel, setOpenPanel] = useState<OpenPanel | null>(null);
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent<HostToWebviewMessage>): void => {
-      if (event.data.type === "open") setDraft(event.data.draft);
+      if (event.data.type === "open") {
+        setOpenPanel({ id: event.data.id, draft: event.data.draft });
+      }
     };
 
     window.addEventListener("message", handleMessage);
@@ -25,23 +32,27 @@ function WebviewApp(): JSX.Element | null {
     return () => window.removeEventListener("message", handleMessage);
   }, []);
 
-  if (draft === null) return null;
+  if (openPanel === null) return null;
 
   return (
     <CardPanel
-      draft={draft}
+      draft={openPanel.draft}
       onSave={(input) => {
-        setDraft(null);
-        vscode.postMessage({ type: "save", input });
+        setOpenPanel(null);
+        vscode.postMessage({ type: "save", id: openPanel.id, input });
       }}
       onDelete={() => {
-        if (draft.slug === null) return;
-        setDraft(null);
-        vscode.postMessage({ type: "delete", slug: draft.slug });
+        if (openPanel.draft.slug === null) return;
+        setOpenPanel(null);
+        vscode.postMessage({
+          type: "delete",
+          id: openPanel.id,
+          slug: openPanel.draft.slug
+        });
       }}
       onClose={() => {
-        setDraft(null);
-        vscode.postMessage({ type: "close" });
+        setOpenPanel(null);
+        vscode.postMessage({ type: "close", id: openPanel.id });
       }}
     />
   );
