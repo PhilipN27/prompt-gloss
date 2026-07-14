@@ -17,7 +17,12 @@ export default tseslint.config(
   ...tseslint.configs.recommended,
   // Node scripts and config files run in a Node environment.
   {
-    files: ["scripts/**/*.mjs", "*.config.{js,ts}", "**/*.config.{js,ts}"],
+    files: [
+      "scripts/**/*.mjs",
+      "packages/*/scripts/**/*.mjs",
+      "*.config.{js,ts}",
+      "**/*.config.{js,ts}"
+    ],
     languageOptions: {
       globals: { ...globals.node }
     }

@@ -27,6 +27,16 @@ export default defineConfig({
         }
       },
       {
+        // CLI suite (TESTING.md "CLI tests"): temp-dir projects + fixture
+        // settings files. Runs with the hook suite in the 3-OS CI job.
+        test: {
+          name: "cli",
+          include: ["packages/cli/test/**/*.test.ts"],
+          environment: "node",
+          testTimeout: 20000
+        }
+      },
+      {
         test: {
           name: "eval",
           include: ["packages/core/eval/**/*.test.ts"],
