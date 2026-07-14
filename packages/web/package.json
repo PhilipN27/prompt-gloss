@@ -12,6 +12,8 @@
     "test:e2e": "playwright test --pass-with-no-tests"
   },
   "dependencies": {
+    "@prompt-gloss/core": "workspace:*",
+    "@prompt-gloss/server": "workspace:*",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
