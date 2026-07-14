@@ -1,0 +1,78 @@
+{
+  "name": "gloss-terminal",
+  "displayName": "Gloss Terminal",
+  "version": "0.1.0",
+  "description": "Attach persistent Gloss context cards to integrated-terminal selections.",
+  "license": "MIT",
+  "publisher": "prompt-gloss",
+  "private": true,
+  "type": "commonjs",
+  "engines": {
+    "vscode": ">=1.93.0"
+  },
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onCommand:gloss.captureSelection",
+    "onView:gloss.cardPanel"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "gloss.captureSelection",
+        "title": "Gloss: attach context to selection"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "gloss.captureSelection",
+        "key": "ctrl+alt+g",
+        "mac": "cmd+alt+g",
+        "when": "terminalFocus && terminalTextSelected"
+      }
+    ],
+    "menus": {
+      "terminal/context": [
+        {
+          "command": "gloss.captureSelection",
+          "when": "terminalFocus && terminalTextSelected"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "panel": [
+        {
+          "id": "gloss",
+          "title": "Gloss"
+        }
+      ]
+    },
+    "views": {
+      "gloss": [
+        {
+          "id": "gloss.cardPanel",
+          "name": "Gloss Card",
+          "type": "webview"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.mjs && tsc -b --pretty false",
+    "package": "vsce package",
+    "test:vscode": "echo \"VS Code extension tests arrive in Slice 3\""
+  },
+  "dependenciesMeta": {
+    "@vscode/vsce-sign": {
+      "built": false
+    },
+    "keytar": {
+      "built": false
+    }
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.93.0",
+    "@vscode/vsce": "3.2.2",
+    "esbuild": "^0.24.2",
+    "typescript": "^5.7.3"
+  }
+}

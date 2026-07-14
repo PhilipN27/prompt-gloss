@@ -6,6 +6,7 @@
     { "path": "packages/cli" },
     { "path": "packages/server" },
     { "path": "packages/panel-ui" },
+    { "path": "packages/vscode" },
     { "path": "packages/web" }
   ]
 }

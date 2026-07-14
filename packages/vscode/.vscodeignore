@@ -1,0 +1,8 @@
+.gitignore
+.vscode-test/**
+out/**
+src/**
+test/**
+esbuild.mjs
+tsconfig.json
+tsconfig.tsbuildinfo
