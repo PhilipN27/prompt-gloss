@@ -40,6 +40,15 @@ describe("cli argv strictness", () => {
     );
   });
 
+  it("accepts hyphen-leading values that are not known flags", async () => {
+    const dir = makeProject();
+    await main(["add", "xyz", "--body", "- a bullet body", "--project", dir]);
+    const { readFileSync } = await import("node:fs");
+    expect(readFileSync(join(dir, ".gloss", "cards", "xyz.md"), "utf8")).toContain(
+      "- a bullet body"
+    );
+  });
+
   it("rejects multiple body sources for add", async () => {
     const dir = makeProject();
     await expect(

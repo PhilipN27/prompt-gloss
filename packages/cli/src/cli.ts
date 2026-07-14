@@ -4,8 +4,9 @@
 // value flags must be followed by a value (never another flag), numbers are
 // validated. A typo must never silently perform a real install.
 
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { runInit } from "./commands/init.js";
 import { runUninstall } from "./commands/uninstall.js";
 import { runAdd } from "./commands/add.js";
@@ -57,7 +58,10 @@ function parseArgs(command: string, argv: string[]): ParsedArgs {
       if (!known.has(arg)) throw new Error(`unknown option for ${command}: ${arg}\n\n${USAGE}`);
       if (VALUE_FLAGS.has(arg)) {
         const value = argv[i + 1];
-        if (value === undefined || (value.startsWith("-") && value !== "-")) {
+        // Reject a KNOWN flag as a value (`--settings-file --dry-run` must not
+        // swallow the flag) while still allowing legitimate hyphen-leading
+        // values like --body "- a bullet" or an alias starting with "-".
+        if (value === undefined || known.has(value)) {
           throw new Error(`option ${arg} requires a value`);
         }
         i++;
@@ -158,7 +162,18 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
   }
 }
 
-const invokedDirectly = process.argv[1]?.endsWith("cli.js") ?? false;
+// npm's Unix bin link is a symlink named `prompt-gloss` (no .js suffix), so
+// resolve the real entry path and compare against this module's URL; a plain
+// suffix check would make the installed binary a silent no-op.
+const entry = process.argv[1];
+let invokedDirectly = false;
+if (entry) {
+  try {
+    invokedDirectly = pathToFileURL(realpathSync(entry)).href === import.meta.url;
+  } catch {
+    invokedDirectly = entry.endsWith("cli.js") || entry.endsWith("prompt-gloss");
+  }
+}
 if (invokedDirectly) {
   main().then(
     (code) => {

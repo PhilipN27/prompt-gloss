@@ -16,7 +16,7 @@
   },
   "scripts": {
     "build": "pnpm --filter @prompt-gloss/hook build && tsc -b && node scripts/copy-bundle.mjs",
-    "prepack": "pnpm build",
+    "prepack": "pnpm --filter @prompt-gloss/web build && pnpm run build",
     "test": "vitest run --project cli"
   },
   "dependencies": {
