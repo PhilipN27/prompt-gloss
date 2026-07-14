@@ -216,6 +216,11 @@ describe("runCompanion — first-hotkey project picker (no --project)", () => {
     const noPickHtml = await noPick.text();
     expect(noPickHtml).toContain("Choose a project");
     expect(noPickHtml).not.toContain("New context card");
+
+    // Break-it round 2 F6: no web SPA is served on a companion server, so there
+    // is no other card-creating UI route that could write to the throwaway dir.
+    const root = await fetch(`${handle.baseUrl}/`);
+    expect(root.status).toBe(404);
   });
 
   it("rebinds to the chosen project: /api/companion/project returns its panel URL and later captures target it", async () => {

@@ -61,10 +61,9 @@ describe("createAppModeOpener", () => {
   });
 
   it.each([
-    // win32: cmd.exe metacharacters are caret-escaped so the URL's `&` query
-    // separators survive `start` (break-it F1); the URL is percent-encoded, so
-    // only the separators are affected.
-    ["win32", "cmd.exe", ["/d", "/s", "/c", "start", "", URL.replace(/[&^|<>()]/g, (c) => `^${c}`)]],
+    // win32: explorer.exe takes the URL as a single argv (no cmd reparse), so
+    // the `&` separators and `%` encoding survive verbatim (break-it F1).
+    ["win32", "explorer.exe", [URL]],
     ["darwin", "open", [URL]],
     ["linux", "xdg-open", [URL]]
   ] as const)(

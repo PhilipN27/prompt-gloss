@@ -110,7 +110,6 @@ export async function runCompanion(opts: CompanionOptions = {}): Promise<Compani
     server: undefined as unknown as PanelServer,
     projectDir: opts.projectDir ?? null
   };
-  let projectServer: PanelServer | undefined; // the current project-bound server (retired on rebind)
 
   async function startBoundServer(projectDir: string, pickerOnly: boolean): Promise<PanelServer> {
     const server = await startServer({
@@ -132,21 +131,19 @@ export async function runCompanion(opts: CompanionOptions = {}): Promise<Compani
     return server;
   }
 
-  // Project selection is serialized so concurrent picks can't tear the session
-  // or accumulate servers; the superseded project server (if any) is retired
-  // (break-it F4). The picker server survives until stop().
+  // Project selection is serialized so concurrent picks can't tear the session.
+  // Superseded servers are retired on stop() only — NOT eagerly — so we never
+  // close a server that a concurrent capture, or the picker request itself, may
+  // still be using (break-it round 2 F2/F4). A re-pick therefore leaves one
+  // bounded idle localhost listener until shutdown; closeAll() reaps them all
+  // exactly once.
   let selectLock: Promise<unknown> = Promise.resolve();
   const onProjectSelected = (selection: ProjectPickerSelection): Promise<ProjectPickerResult> => {
     const run = selectLock.then(async (): Promise<ProjectPickerResult> => {
       const server = await startBoundServer(selection.projectDir, false);
-      const prior = projectServer;
-      projectServer = server;
+      if (stopped) throw new Error("companion is shutting down");
       session.server = server;
       session.projectDir = selection.projectDir;
-      if (prior && prior !== server) {
-        openServers.delete(prior);
-        void prior.close().catch(() => undefined);
-      }
       return { panelUrl: panelUrl(server.baseUrl, selection.span) };
     });
     selectLock = run.catch(() => undefined);
@@ -156,7 +153,6 @@ export async function runCompanion(opts: CompanionOptions = {}): Promise<Compani
   // Initial server: the chosen project, or a picker-only server on a private dir.
   if (session.projectDir) {
     session.server = await startBoundServer(session.projectDir, false);
-    projectServer = session.server;
   } else {
     pickerPlaceholder = mkdtempSync(join(tmpdir(), "gloss-picker-"));
     session.server = await startBoundServer(pickerPlaceholder, true);

@@ -188,13 +188,22 @@ export function createWindowsAdapter(
           uiohook.uIOhook.start();
         } catch (err) {
           // If .start() throws after .on(), the listeners are already installed
-          // — tear them down before degrading, so we don't leak them (break-it F7).
+          // — tear them down AND stop the hook before degrading. Each in its own
+          // try so a throwing removeListener can't skip .stop() (break-it round 2 F7).
           try {
             uiohook.uIOhook.removeListener("keydown", onKeydown);
+          } catch {
+            // best-effort
+          }
+          try {
             uiohook.uIOhook.removeListener("keyup", onKeyup);
+          } catch {
+            // best-effort
+          }
+          try {
             uiohook.uIOhook.stop();
           } catch {
-            // best-effort cleanup
+            // best-effort
           }
           return {
             ok: false,

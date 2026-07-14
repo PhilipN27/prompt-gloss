@@ -204,6 +204,27 @@ raised 8 findings — all fixed:
   windows/macos/linux register catches now tear down the partial listeners.
 - **F8 (Med)** Wayland left a ref'd 60s portal timer → cleared on early resolve.
 
+**Round 2** (verified the round-1 fixes; found several INCOMPLETE and fixed them
+by *simplifying* rather than patching):
+- **F2/F4/session-lifetime**: eager server retirement created close-during-use
+  races (double-close, closing the request-hosting server on a re-pick, closing
+  a server a concurrent capture was opening) → **retire superseded servers on
+  `stop()` only**. A re-pick leaves one bounded idle localhost listener until
+  shutdown; `closeAll()` reaps each exactly once. This removes the whole
+  close-during-use race class.
+- **F5**: `inFlight` tracked the most-recent (possibly reentrancy-dropped) hotkey
+  promise → track every promise in a set so `stop()` awaits the genuinely-running
+  capture (commit 03b42c3), and with close-on-stop-only a capture no longer
+  races a server close.
+- **F6**: the companion server also served the web SPA, whose card panel could
+  POST to `/api/cards` on the throwaway picker server → **companion servers no
+  longer register the web SPA** (they serve only the standalone `/panel`).
+- **F1 (%-edge)**: a contrived `%VAR%` expansion could still mangle the URL under
+  `cmd /c start` → switched the Windows browser fallback to `explorer.exe` (URL
+  as a single argv, no cmd reparse — `&` and `%` pass through verbatim).
+- **F7**: a throwing `removeListener` could skip `.stop()` → each cleanup call in
+  its own try/catch. **F8** confirmed fixed.
+
 ## Live-smoke matrix (HUMAN-only — beyond CI's input boundary, §14 / TESTING.md)
 
 CI verifies the injection/flow/wiring path only. The per-OS CAPTURE mechanisms

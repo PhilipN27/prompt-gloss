@@ -42,16 +42,14 @@ function defaultBrowserCommand(
   switch (platform) {
     case "darwin":
       return { command: "open", args: [url] };
-    case "win32": {
-      // `start` is a cmd.exe built-in (empty arg = its window-title slot). The
-      // URL is already percent-encoded (URLSearchParams), so its only raw `&`
-      // are query separators — cmd.exe would treat those as command separators
-      // and truncate the URL (break-it F1). Caret-escape cmd metacharacters so
-      // the full URL reaches the browser. No shell is used, and the span is
-      // percent-encoded, so there is no injection surface.
-      const escaped = url.replace(/[&^|<>()]/g, (c) => `^${c}`);
-      return { command: "cmd.exe", args: ["/d", "/s", "/c", "start", "", escaped] };
-    }
+    case "win32":
+      // `explorer.exe <url>` opens the URL with the default handler and takes it
+      // as a SINGLE argv — no cmd.exe reparse. So the `&` query separators and
+      // the `%` percent-encoding pass through literally, unlike `cmd /c start`,
+      // which splits on `&` and expands `%VAR%` (break-it F1 + round-2 %-edge).
+      // explorer exits non-zero even on success, but we key off the "spawn"
+      // event, not the exit code.
+      return { command: "explorer.exe", args: [url] };
     case "linux":
       return { command: "xdg-open", args: [url] };
     default:

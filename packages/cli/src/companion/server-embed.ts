@@ -33,12 +33,16 @@ export async function startPanelServer(opts: PanelServerOptions): Promise<PanelS
   const log = opts.log ?? (() => undefined);
   const config = resolveConfig({ projectDir: opts.projectDir, port: opts.port ?? 0 });
   const app = await buildServer(config, opts.hooks ?? {});
-  // Companion panel/picker routes first, so `/panel` and `/api/companion/*`
-  // win over the web-UI static wildcard + SPA notFound fallback.
   if (opts.panelRoutes) {
+    // Companion mode: serve ONLY the standalone /panel + picker routes. The web
+    // SPA is deliberately NOT registered — its card panel would POST to
+    // /api/cards, and on a picker server (bound to a throwaway dir) that would
+    // write cards off-project (break-it round 2 F6). The companion never needs
+    // the full web app.
     registerCompanionPanelRoutes(app, opts.panelRoutes);
+  } else {
+    await registerWebUi(app, log);
   }
-  await registerWebUi(app, log);
 
   await app.listen({ host: config.host, port: config.port });
   const address = app.server.address() as AddressInfo;
