@@ -67,6 +67,19 @@ importers:
         specifier: ^0.24.2
         version: 0.24.2
 
+  packages/panel-ui:
+    dependencies:
+      '@prompt-gloss/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@types/react':
+        specifier: ^18.3.18
+        version: 18.3.31
+      react:
+        specifier: ^18.3.1
+        version: 18.3.1
+
   packages/server:
     dependencies:
       '@anthropic-ai/claude-agent-sdk':
@@ -88,6 +101,9 @@ importers:
       '@prompt-gloss/core':
         specifier: workspace:*
         version: link:../core
+      '@prompt-gloss/panel-ui':
+        specifier: workspace:*
+        version: link:../panel-ui
       '@prompt-gloss/server':
         specifier: workspace:*
         version: link:../server

@@ -1,5 +1,5 @@
 import { useEffect, useState, type JSX } from "react";
-import type { Card } from "./api.js";
+import type { Card } from "@prompt-gloss/core";
 
 export interface PanelDraft {
   /** Present when editing an existing card; absent when creating. */

@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useRef, useState, type JSX } from "react";
 import { Message } from "./Message.js";
 import { HighlightAffordance, type AffordanceTarget } from "./HighlightAffordance.js";
-import { CardPanel, draftFromCard, draftFromSelection, type PanelDraft } from "./CardPanel.js";
+import {
+  CardPanel,
+  draftFromCard,
+  draftFromSelection,
+  type PanelDraft
+} from "@prompt-gloss/panel-ui";
 import { draftSelectionText, messageSelectionInfo, excerpt } from "./selection.js";
 import {
   createCard,

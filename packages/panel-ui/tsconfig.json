@@ -5,10 +5,11 @@
     "outDir": "dist",
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "jsx": "react-jsx",
-    "types": ["node", "vite/client"],
+    "composite": true,
+    "declaration": true,
     "noEmit": false
   },
-  "references": [{ "path": "../core" }, { "path": "../server" }, { "path": "../panel-ui" }],
+  "references": [{ "path": "../core" }],
   "include": ["src/**/*.ts", "src/**/*.tsx"],
-  "exclude": ["dist", "e2e"]
+  "exclude": ["dist"]
 }
