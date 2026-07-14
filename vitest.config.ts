@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 
 // Two projects so the matcher golden-set eval is a separately-runnable gate:
@@ -29,6 +30,18 @@ export default defineConfig({
       {
         // CLI suite (TESTING.md "CLI tests"): temp-dir projects + fixture
         // settings files. Runs with the hook suite in the 3-OS CI job.
+        // Workspace deps resolve to TS sources so the suite needs no prior
+        // tsc build (CI builds only the hook bundle).
+        resolve: {
+          alias: {
+            "@prompt-gloss/core": fileURLToPath(
+              new URL("./packages/core/src/index.ts", import.meta.url)
+            ),
+            "@prompt-gloss/server": fileURLToPath(
+              new URL("./packages/server/src/index.ts", import.meta.url)
+            )
+          }
+        },
         test: {
           name: "cli",
           include: ["packages/cli/test/**/*.test.ts"],
