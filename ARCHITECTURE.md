@@ -253,7 +253,11 @@ Input: message text + the index. Output: a deduplicated set of card slugs.
 4. **Match:** a single-token term matches on stem-folded token equality; a
    multi-word term/alias matches as a consecutive stem-folded token phrase.
    Terms containing non-word characters (e.g. `foo.bar`) match by
-   case-insensitive literal search guarded by non-alphanumeric boundaries.
+   case-insensitive literal search guarded by non-word boundaries. "Word"
+   here means letters, digits, **and underscore** — underscore is the
+   canonical identifier joiner, so it is word-internal in both the tokenizer
+   and the literal guard: `gateway` never matches inside `api_gateway_v2`,
+   and `analytics_rollup` never matches inside `my_analytics_rollup_v2`.
    Token equality gives word-boundary anchoring for free: `xyz` never matches
    `xyzabc`.
 5. **Resolve + dedupe:** alias hits resolve to their owning card; overlapping
