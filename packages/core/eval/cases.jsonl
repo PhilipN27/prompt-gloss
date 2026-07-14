@@ -34,3 +34,7 @@
 {"name": "capitalized multi-word term at sentence start", "message": "Billing Engine owns proration now", "expect": ["billing-engine"]}
 {"name": "gateway plural alias (api gateways) matches", "message": "we sharded the api gateways by region", "expect": ["gateway"]}
 {"name": "no match when only a stem fragment appears", "message": "the gat in the fence is broken", "expect": []}
+{"name": "word term does not match inside a snake_case identifier", "message": "call api_gateway_v2 from the router", "expect": []}
+{"name": "word term does not match inside a leading-underscore identifier", "message": "the _gateway helper is internal", "expect": []}
+{"name": "underscore term still matches as a whole token", "message": "kick off the analytics_rollup job", "expect": ["analytics-rollup"]}
+{"name": "multi-word term still matches around punctuation after underscore fix", "message": "the billing engine, again", "expect": ["billing-engine"]}

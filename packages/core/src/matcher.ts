@@ -10,9 +10,13 @@ export function normalize(text: string): string {
   return text.normalize("NFKC").toLowerCase().replace(/\s+/g, " ").trim();
 }
 
-// A token is a maximal run of Unicode letters/numbers, optionally carrying an
-// apostrophe + suffix (so "engine's" survives as one token for the stemmer).
-const TOKEN_RE = /[\p{L}\p{N}]+(?:['’][\p{L}\p{N}]+)*/gu;
+// A token is a maximal run of Unicode letters/numbers/underscores, optionally
+// carrying an apostrophe + suffix (so "engine's" survives as one token for the
+// stemmer). Underscore is word-internal so a term never matches inside a larger
+// snake_case identifier: `my_rollup_v2` is one token, not `my`+`rollup`+`v2`.
+// This keeps the token path consistent with the literal-guard path, which also
+// treats `_` as identifier-internal.
+const TOKEN_RE = /[\p{L}\p{N}_]+(?:['’][\p{L}\p{N}_]+)*/gu;
 
 /** Tokenize normalized-or-raw text on Unicode word boundaries. */
 export function tokenize(text: string): string[] {
@@ -57,10 +61,12 @@ function containsSubsequence(haystack: string[], needle: string[]): boolean {
 }
 
 /** Terms containing non-word characters (e.g. `foo.bar`) aren't tokenizable as
- * a phrase; match them by literal substring guarded by non-alphanumeric edges. */
+ * a phrase; match them by literal substring guarded by non-word edges. `_` is
+ * word-internal (like the tokenizer), so `analytics_rollup` is a normal token
+ * term, not a literal one — keeping both match paths consistent. */
 function hasNonWordChar(term: string): boolean {
   const stripped = term.replace(/\s+/g, "");
-  return /[^\p{L}\p{N}]/u.test(stripped);
+  return /[^\p{L}\p{N}_]/u.test(stripped);
 }
 
 // For boundary-guarding, `_` counts as a word character even though it is not

@@ -134,6 +134,22 @@ describe("matchMessage — non-word-character terms", () => {
   });
 });
 
+describe("matchMessage — snake_case identifiers (underscore is word-internal)", () => {
+  it("does NOT match a word term inside a snake_case identifier", () => {
+    const idx = indexOf(entry({ slug: "gateway", term: "gateway" }));
+    expect(matchMessage("call api_gateway_v2 now", idx)).toEqual([]);
+    expect(matchMessage("the _gateway helper", idx)).toEqual([]);
+    expect(matchMessage("use gateway_config here", idx)).toEqual([]);
+  });
+  it("matches an underscore term as a whole token", () => {
+    const idx = indexOf(entry({ slug: "analytics-rollup", term: "analytics_rollup" }));
+    expect(matchMessage("run the analytics_rollup job", idx)).toEqual([
+      "analytics-rollup"
+    ]);
+    expect(matchMessage("my_analytics_rollup_v2 shadow", idx)).toEqual([]);
+  });
+});
+
 describe("matchMessage — multiple cards and negatives", () => {
   const idx = indexOf(
     entry({ slug: "xyz", term: "xyz" }),

@@ -142,4 +142,31 @@ describe("parseCardFile tolerance (hand-edited files)", () => {
     const parsed = parseCardFile(text, "foo");
     expect(parsed.ok && parsed.card.aliases).toEqual(["just-one"]);
   });
+
+  it("preserves UNQUOTED ISO timestamps (YAML parses them as Date, not string)", () => {
+    // ARCHITECTURE.md's own example and typical hand-edits write timestamps
+    // unquoted; YAML yields a Date. The parser must keep the real value, not
+    // silently reset created/updated to now (which would break budget ordering).
+    const text = [
+      "---",
+      "term: foo",
+      "created: 2026-01-02T03:04:05Z",
+      "updated: 2026-06-07T08:09:10Z",
+      "---",
+      "",
+      "body"
+    ].join("\n");
+    const parsed = parseCardFile(text, "foo");
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(new Date(parsed.card.created).toISOString()).toBe("2026-01-02T03:04:05.000Z");
+    expect(new Date(parsed.card.updated).toISOString()).toBe("2026-06-07T08:09:10.000Z");
+  });
+
+  it("does not throw when the frontmatter document is a bare scalar/null", () => {
+    const text = ["---", "just a bare string", "---", "body"].join("\n");
+    const parsed = parseCardFile(text, "foo");
+    // No `term` -> not ok, but crucially it must not throw.
+    expect(parsed.ok).toBe(false);
+  });
 });
