@@ -21,24 +21,34 @@ plumbing. Read the [Guardrails](#guardrails) before adding anything.
 
 - npm package: `prompt-gloss` (`gloss` is taken — verified July 2026). License: MIT.
 - Architecture decision + evidence, data flow, file formats: **ARCHITECTURE.md**
-- What ships in v1 / v2 / never: **ROADMAP.md**
-- Test layers, golden set, Playwright scenarios: **TESTING.md**
+- Terminal surfaces (Claude Code hook, IDE extension, OS companion) — the v2
+  spec, gate evidence, capture ladder, install story: **TERMINAL.md**
+  (binding with the same authority as ARCHITECTURE.md)
+- What ships in v1 / v2 / v3 / never: **ROADMAP.md**
+- Test layers, golden set, Playwright scenarios, hook/extension plans, live
+  smoke: **TESTING.md**
 
 ## Your lane (division of labor)
 
 - **You (GPT-5.6 / Codex):** UI components in `packages/web` (chat pane,
   highlight affordance, card panel, injection indicator), Playwright tests in
   `packages/web/e2e/`, and docs polish — working from ARCHITECTURE.md and
-  TESTING.md as specs.
+  TESTING.md as specs. **v2 terminal:** the VS Code/Cursor extension UX
+  (`packages/vscode` — contributions, capture command, webview wiring per
+  TERMINAL.md §7), the `panel-ui` extraction from `packages/web` (v1 e2e must
+  stay green), extension-harness tests (TESTING.md), and companion panel UX.
 - **Claude (Fable 5):** architecture-sensitive work — `packages/core` (store,
   matcher, injection budget), Agent SDK integration in `packages/server`, and
-  the **final review gate on every merge**.
+  the **final review gate on every merge**. **v2 terminal:** the hook pipeline
+  and bundle (`packages/hook`), the CLI with settings merge/unmerge
+  (`packages/cli`), and the companion capture architecture (TERMINAL.md §8).
 - **Cross-review:** you review Claude's diffs, Claude reviews yours, before
   merge; findings are logged in PR notes. Do not merge unreviewed work.
-- If your task requires changing `packages/core` interfaces or the injection
-  format, stop and flag it for the Claude lane instead of changing it
-  unilaterally — those contracts are pinned by ARCHITECTURE.md and the golden
-  set.
+- If your task requires changing `packages/core` interfaces, the injection
+  format, the hook stdin/stdout contract, `CardSource.origin`, or the
+  `SelectionSource` interface, stop and flag it for the Claude lane instead of
+  changing it unilaterally — those contracts are pinned by ARCHITECTURE.md,
+  TERMINAL.md, and the golden set.
 
 ## Repo layout
 
@@ -52,6 +62,15 @@ packages/
             # wires core's matcher/injector into every user message. Claude's lane.
   web/      # Vite + React chat UI: chat pane, highlight affordance,
             # card panel, injection indicator. Your lane.
+
+  # v2 terminal surfaces (planned — spec in TERMINAL.md §10/§11):
+  hook/     # @prompt-gloss/hook — Claude Code UserPromptSubmit/SessionStart
+            # pipeline; single esbuild CJS bundle. Claude's lane.
+  cli/      # prompt-gloss — published CLI: init / uninstall / add / log /
+            # doctor / companion / web. Claude's lane. (Root workspace package
+            # renames to @prompt-gloss/monorepo so this can take the npm name.)
+  vscode/   # gloss-terminal — VS Code/Cursor extension. Your lane.
+  panel-ui/ # shared React card panel, extracted from web/. Your lane.
 ```
 
 ## Commands
@@ -65,6 +84,10 @@ pnpm eval:matcher                       # matcher golden-set eval (merge gate)
 pnpm test:e2e                           # playwright; self-contained, fake-agent mode
 pnpm check                              # lint + typecheck + test + eval — run before every commit
 ```
+
+v2 adds (once the terminal packages land — TERMINAL.md §11, TESTING.md):
+`pnpm test:hook` (hook-contract suite against the built bundle; CI runs it on
+a 3-OS matrix) and the `packages/vscode` extension-harness suite.
 
 ## Architecture summary
 
@@ -123,7 +146,7 @@ From ARCHITECTURE.md — the panel and affordance you build must satisfy:
   selection (DOM ranges) are different code paths — both are covered by the
   Playwright scenarios in TESTING.md, which are the acceptance tests.
 
-## v1 definition of done
+## v1 definition of done (met 2026-07-14)
 
 A user can: run the app against a real project, highlight a span in a draft
 prompt or prior message, save a context card, see it injected on matching
@@ -131,6 +154,9 @@ messages (with indicator), restart entirely, and have the same knowledge apply
 in a fresh session. CI green, matcher eval passing, MIT LICENSE and complete
 .gitignore in place, README with a 60-second GIF demo and an honest comparison
 to mem0 / CloudCLI / cui explaining the span-anchored difference.
+
+The **v2 (terminal) definition of done** is recorded verbatim in
+TERMINAL.md §14.
 
 ## Guardrails
 
@@ -143,7 +169,11 @@ to mem0 / CloudCLI / cui explaining the span-anchored difference.
   highlighted span.
 - **Keep the chat plumbing thin.** Complexity budget goes to the interaction,
   not the client.
-- **v1 scope is fixed.** Embeddings, global scope, and card suggestions are
-  v2 (ROADMAP.md). Do not implement them early.
+- **Terminal surfaces follow TERMINAL.md.** The capture ladder, the
+  never-fork-the-matcher rule, the hook's never-break-the-prompt failure
+  policy, and the rejected alternatives (§13 — notably: no PTY wrapper, no
+  TUI fork) are binding. No generic terminal tooling (ROADMAP.md non-goals).
+- **v2 scope is fixed.** Embeddings, global scope, and card suggestions are
+  v3 (ROADMAP.md). Do not implement them early.
 - **No AGPL code.** Do not copy code from CloudCLI or other AGPL projects into
   this MIT repo.

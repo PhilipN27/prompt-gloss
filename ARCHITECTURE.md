@@ -366,6 +366,12 @@ add remote-access features (ROADMAP.md non-goals).
 | 7 | Token estimate = `ceil(chars/4)` | No tokenizer dep; budget is a guardrail, not billing |
 | 8 | `.gloss/.state/` self-gitignores via inner `.gitignore` | Cards committable, machine state never accidentally committed |
 | 9 | Fake-agent mode for e2e | Hermetic CI without API keys; the LLM is not the unit under test |
+| 10 | Terminal injection via Claude Code CLI `UserPromptSubmit` settings hook (single-file bundled `gloss-hook.cjs`) | Same `additionalContext` mechanism as v1's SDK hook, live-verified against CLI 2.1.197; ~64 ms bundled cold start measured — no daemon needed (TERMINAL.md §2) |
+| 11 | Capture ladder: IDE extension → OS companion → CLI/slash-command | Selection is owned by the IDE / the OS, not Claude Code's TUI; each environment gets the best hookable layer, fallbacks documented (TERMINAL.md §3) |
+| 12 | Session dedup state moves to `.gloss/.state/sessions/<session_id>.json` for hook surfaces | Hooks are stateless per prompt; file-backed `InjectionLog` twin keyed by hook-payload `session_id` (TERMINAL.md §4.2) |
+| 13 | Terminal injection indicator = hook `systemMessage` | The one documented user-visible transcript line from a hook; deterministic, works in every terminal incl. SSH (TERMINAL.md §6) |
+| 14 | Hook settings command is POSIX shell form (`node "$CLAUDE_PROJECT_DIR/.gloss/hook/gloss-hook.cjs"`) | Claude Code executes hooks under Git Bash on Windows (probe-verified) — one command string for all user shells (TERMINAL.md §2.1) |
+| 15 | `CardSource` gains optional `origin` (`web`/`vscode-terminal`/`companion`/`cli`) | Terminal spans have no message DOM; provenance per capture path, backward compatible (TERMINAL.md §5) |
 
 ## 9. Risks and open questions (for the implementation session)
 
@@ -388,3 +394,50 @@ add remote-access features (ROADMAP.md non-goals).
 - **`messageExcerpt` privacy.** `source.message` stores a ≤200-char excerpt in
   the card file; users committing `.gloss/` should know excerpts of prompts
   land in git history — call this out in the README.
+
+---
+
+## 10. Terminal surfaces (addendum, 2026-07-14)
+
+v1 shipped the loop in a standalone web app. The next major feature moves the
+same loop into the terminal, where Claude Code actually runs. The full spec —
+gate evidence, capture ladder, hook architecture, install story, risks — is
+**TERMINAL.md**; this section only extends the component picture. Sections
+1–9 above are unchanged and remain the v1 record. (Reading note: "v2"
+mentions inside §§1–9 predate the 2026-07-14 roadmap restructure — the
+smarter-matching items they refer to now live under v3 in ROADMAP.md.)
+
+```
+        ┌────────────── capture surfaces (one per environment) ──────────────┐
+        │                                                                    │
+        │  Browser (v1 web app)      VS Code / Cursor ext      OS companion  │
+        │  selection → panel         terminal selection →      global hotkey │
+        │  (unchanged, §2–§7)        webview panel             → panel window│
+        │                                    │                       │       │
+        │                                    └──── @prompt-gloss/panel-ui ───┤
+        │                                          (shared React card panel) │
+        └───────────────┬────────────────────┬───────────────────┬───────────┘
+                        ▼                    ▼                   ▼
+                          .gloss/  in the user's project (one store,
+                           every surface reads/writes the same cards)
+                                            │
+              ┌─────────────────────────────┼──────────────────────────────┐
+              ▼                             ▼                              ▼
+   packages/server (v1)          .gloss/hook/gloss-hook.cjs          prompt-gloss CLI
+   SDK session, in-process       Claude Code UserPromptSubmit /      add / log / doctor
+   UserPromptSubmit hook         SessionStart settings hook          (bottom rung)
+   (unchanged)                   (bundled from packages/hook;
+                                 core matcher + budget, file-backed
+                                 dedup in .gloss/.state/sessions/)
+              │                             │
+              ▼                             ▼
+        Agent SDK session            any `claude` session in any terminal
+```
+
+Invariants carried over unchanged: `packages/core` stays dependency-free and
+is never forked; matching/budget/`<gloss-context>` format/session dedup are
+identical on every surface; `.gloss/` card files remain the single source of
+truth; the index stays disposable; everything binds to the local machine
+only. New state: `.gloss/.state/sessions/` (per-session dedup) and
+`.gloss/.state/injections.jsonl` (indicator/`log` trail) — both under the
+existing self-gitignoring `.state/`.

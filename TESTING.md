@@ -33,6 +33,10 @@ are defined in ARCHITECTURE.md.
 | Unit | Vitest | `packages/*/src/**/*.test.ts` (colocated) | store, matcher, budget, slug/frontmatter utils, server route handlers |
 | Matcher eval | Vitest (separate project) + golden set | `packages/core/eval/` | end-to-end matching quality against committed fixtures |
 | E2E | Playwright | `packages/web/e2e/` | the highlight interaction, panel, indicator, persistence — real browser, real server, fake agent |
+| Hook contract | Vitest, spawning the real bundle | `packages/hook/test/` | the terminal injection pipeline: synthetic stdin → real `gloss-hook.cjs` → stdout JSON contract (see [Terminal surfaces](#terminal-surfaces)) |
+| CLI | Vitest, temp dirs + fixture settings | `packages/cli/test/` | `init`/`uninstall` settings merge, `add`/`log`/`doctor` |
+| Extension | `@vscode/test-electron` | `packages/vscode/src/test/` | activation, commands, capture round-trip, webview save path |
+| Companion | Vitest (flow), manual matrix (OS capture) | `packages/cli/test/companion/` | hotkey→capture→panel flow against scripted `SelectionSource`s |
 
 ### Unit tests — what must be covered
 
@@ -169,6 +173,136 @@ keyboard `Shift+Arrow` selection); message-selection uses DOM ranges (`page.mous
 drag or triple-click a word). Both paths must be exercised — they are different
 code.
 
+## Terminal surfaces
+
+Test plans for the TERMINAL.md surfaces. The v1 ground rules apply verbatim,
+with one principled extension of rule 2: alongside the LLM, the **OS/editor
+input boundary** (a real human's terminal selection, a real global keypress)
+may be faked, because CI cannot synthesize it — everything downstream of that
+boundary (capture flow, matcher, budget, store, settings merge) runs real.
+This mirrors the v1 `Injector` precedent exactly: fake the boundary, never
+the pipeline, and cover the real boundary with a documented live smoke.
+
+### Hook contract tests (`packages/hook`) — written before implementation
+
+These spawn the **real built bundle** (`node dist/gloss-hook.cjs`) as a child
+process with a synthetic stdin payload against a temp-dir `.gloss/` fixture —
+the same payload shape captured from the live CLI probe (TERMINAL.md §2.1:
+`session_id`, `transcript_path`, `cwd`, `prompt_id`, `permission_mode`,
+`hook_event_name`, `prompt`). Required cases:
+
+- **Match → contract:** prompt containing a fixture term → stdout is exactly
+  `{ hookSpecificOutput: { hookEventName: "UserPromptSubmit", additionalContext } , systemMessage }`,
+  exit 0; `additionalContext` matches the snapshot-locked `<gloss-context>`
+  wrapper; `systemMessage` names the injected slugs.
+- **No match → silence:** unrelated prompt → empty stdout, exit 0 (no
+  systemMessage — no noise).
+- **Session dedup across invocations:** same `session_id`, same term, two
+  invocations → second emits nothing; bump the card's `updated` between
+  invocations → second re-injects. Different `session_id` → injects fresh.
+  State lands in `.gloss/.state/sessions/<session_id>.json` (atomic write:
+  no partial file after a killed run).
+- **Budget + cap:** oversized card set → packing honors the v1 budget rules;
+  a payload that would exceed 9,500 chars is clamped with the
+  `…[truncated by Gloss]` marker (Claude Code's 10,000-char hook-output cap,
+  TERMINAL.md §2.1, must never be hit).
+- **Never break the prompt:** malformed stdin JSON, missing `.gloss/`,
+  unreadable index, corrupted session state file → empty stdout, **exit 0**
+  (never exit 2 — that erases the user's prompt), error appended to
+  `.gloss/.state/hook-errors.log`.
+- **Skip switch:** `GLOSS_SKIP_HOOK=1` in the environment → empty stdout,
+  exit 0, no state written (TERMINAL.md §4.5).
+- **Concurrent append:** two hook processes injecting simultaneously into the
+  same project → `injections.jsonl` contains both records with no interleaved
+  or corrupted lines; both `sessions/*.json` files intact (TERMINAL.md §4.2).
+- **SessionStart mode:** `--session-start` → framing `additionalContext`;
+  prunes `sessions/*.json` older than 30 days; trims `injections.jsonl`.
+- **Injection log:** every injection appends one line to
+  `.gloss/.state/injections.jsonl` (drives `prompt-gloss log`).
+
+Run: `pnpm test:hook` (bundle is built first — the tests exercise the
+artifact that ships, not the TS sources). **CI runs this suite on the
+ubuntu + windows + macos matrix** — it is the cross-platform merge gate for
+the injection path.
+
+### CLI tests (`packages/cli`)
+
+Temp-dir projects with fixture `.claude/settings.json` files:
+
+- `init` into: no settings file / empty file / existing unrelated hooks /
+  existing Gloss entries (idempotent re-run) → Gloss entries present exactly
+  once, **every pre-existing key byte-preserved**, hook bundle copied,
+  `--dry-run` writes nothing. The same cases run against both targets:
+  `.claude/settings.json` (default) and `.claude/settings.local.json`
+  (`--local`).
+- `uninstall` → Gloss entries removed from **both** `settings.json` and
+  `settings.local.json` (whichever exist), `.gloss/hook/` + `.gloss/.state/`
+  + `.claude/commands/gloss.md` removed; cards and unrelated settings
+  untouched; running it twice is a no-op.
+- `add` → card file identical in shape to a panel-created card
+  (`origin: cli`); `log` renders the jsonl fixture; `doctor` flags a missing
+  hook entry and a stale bundle.
+
+### Extension tests (`packages/vscode`)
+
+Via `@vscode/test-electron` (real VS Code, headless in CI with xvfb):
+
+- Activation + command/keybinding/menu contributions registered (assert
+  against the packaged `package.json`).
+- Capture command with a **pre-seeded clipboard** (the harness cannot select
+  text in a real terminal — that sits beyond the input boundary): saved
+  user clipboard is restored after capture; panel opens prefilled; Save
+  writes the card via core to the workspace `.gloss/` (assert on disk);
+  editing an existing term opens edit mode.
+- Webview ↔ host message contract (postMessage round-trip snapshot).
+- Real-terminal selection capture and the shell-integration provenance
+  buffer are **live-smoke items** (below) — documented as untestable in the
+  harness, per the boundary rule.
+
+### Companion tests (`packages/cli`, companion module)
+
+- Capture adapters live behind the `SelectionSource` interface (one per
+  OS/mechanism). Flow tests drive the real companion loop with a scripted
+  `SelectionSource` (boundary fake): hotkey event → capture → panel URL
+  opened → card saved via the real server route → OS notification emitted.
+- Windows clipboard-freshness logic (accept fresh, reject stale with the
+  "copy first" toast) is pure logic — unit-tested with constructed
+  timestamps/snapshots.
+- Real hotkey + real per-OS capture are live-smoke items.
+
+### Live smoke — the release gate for terminal surfaces
+
+Extends the v1 precedent (ARCHITECTURE.md §9: the real SDK hook is smoked,
+not unit-tested). Run before any release touching hook/CLI/extension/
+companion, and after any Claude Code CLI major bump. Record results in the
+release PR description.
+
+1. **Hook, scripted check (semi-automated):** in a scratch project after
+   `npx prompt-gloss init` + one card:
+   `claude -p "<prompt with the term>" --model haiku --output-format stream-json --include-hook-events`
+   → assert the `hook_response` event for `UserPromptSubmit` has
+   `outcome: "success"` and the reply uses card-only knowledge. (This exact
+   flow was proven in the planning session against CLI 2.1.197.)
+2. **Hook, interactive TUI:** same project, interactive `claude` — send the
+   prompt, confirm the `systemMessage` line renders visibly and the answer
+   uses the card; `/clear`, ask again — card re-injects (new session id);
+   ask a third time in the same session — no re-injection (dedup).
+3. **IDE:** VS Code and Cursor, integrated terminal running `claude`:
+   highlight a word from the conversation → keybinding → panel → save →
+   prompt with the term → answer uses the card + systemMessage visible; also
+   verify the context-menu affordance with
+   `terminal.integrated.rightClickBehavior: default`.
+4. **Companion matrix:** Windows 11 (Windows Terminal + PowerShell), macOS
+   (Terminal.app; note iTerm2/Warp results), Ubuntu GNOME X11, plus one
+   Wayland session (GNOME ≥48 or KDE ≥6.3): highlight → (copy where the OS
+   requires it) → hotkey → panel → save → injection verified as in (2).
+5. **Restart durability:** fully restart terminal/IDE/`claude` → fresh
+   session still injects (cards, not sessions, carry the knowledge).
+6. **Cross-surface:** one card each from web app, extension, companion,
+   `add`, and a hand-edited file → all five inject in one `claude` session.
+7. **Uninstall:** `npx prompt-gloss uninstall` → no Gloss settings entries
+   remain, cards intact, `claude` prompts run hook-free.
+
 ## How agents run the suite
 
 Prerequisites: Node ≥ 20, pnpm ≥ 9 (`corepack enable`), then:
@@ -198,7 +332,7 @@ pnpm check                       # lint + typecheck + test + eval — run before
 
 `.github/workflows/ci.yml`, triggered on push and PR:
 
-1. checkout, setup Node 20 + pnpm cache
+1. checkout, setup Node 22 (see the pnpm-11 note in the workflow) + pnpm cache
 2. `pnpm install --frozen-lockfile`
 3. `pnpm lint`
 4. `pnpm typecheck`
@@ -209,3 +343,16 @@ pnpm check                       # lint + typecheck + test + eval — run before
 All seven steps are required checks. The eval step is intentionally separate
 from `pnpm test` so a matcher regression is identifiable at a glance in the
 check list.
+
+When the terminal surfaces land (TERMINAL.md §11), CI gains two jobs, both
+required:
+
+- **`hook-contract`** — matrix `[ubuntu-latest, windows-latest, macos-latest]`:
+  build the hook bundle, run `pnpm test:hook` + the CLI suite. This is the
+  only matrix job (the pipeline it guards is the one that runs on users'
+  machines in three OS flavors); everything else stays ubuntu-only.
+- **`extension`** — ubuntu with xvfb: `pnpm --filter gloss-terminal test`
+  (`@vscode/test-electron`).
+
+The existing seven steps are unchanged — v1 suites and the golden set remain
+merge gates forever (TERMINAL.md definition of done, item 6).
