@@ -545,7 +545,12 @@ CLAUDE.md. Lanes per CLAUDE.md/AGENTS.md division of labor.
   `toJSON`/`fromJSON` (core, TDD); `CardSource.origin` (core, TDD);
   `packages/hook` with the §4 pipeline incl. `GLOSS_SKIP_HOOK` (TDD via the
   TESTING.md hook-contract layer); esbuild bundle script; hook-contract tests
-  on the 3-OS CI matrix.
+  on the 3-OS CI matrix; and the **§4.5 coexistence change to
+  `packages/server`'s `SdkInjector`** — arm `GLOSS_SKIP_HOOK=1` via
+  `Options.env` (`{ ...process.env, … }`, never mutating `process.env`) and set
+  `settingSources: ["user","project","local"]` explicitly. The hook's
+  skip-switch honoring (both event modes) and the injector's arming are a
+  contract pair — build them together; v1 e2e stays green.
 - **Phase B — CLI** (Claude lane): `packages/cli` with
   `init`/`uninstall`/`add`/`log`/`doctor`; settings merge/unmerge TDD'd
   against fixture settings files (merge-never-clobber, `settings.json` and
@@ -580,8 +585,8 @@ Phases A→B are sequential; C and D parallelize after A. Definition of done:
 | 3 | SDK sessions load the installed Gloss settings hook → **double-injection** (§4.5) | **Phase 0 (2026-07-14) — CONFIRMED the leak:** with `settingSources` omitted (v1's construction) a project `.claude/settings.json` `UserPromptSubmit` hook fired inside a real SDK `query()` (`MARKER_FIRED=true`; SDK doc: "when omitted, all sources are loaded"). **Resolved invariant (council with Codex):** `SdkInjector` always scopes `GLOSS_SKIP_HOOK=1` via `Options.env` (`{ ...process.env, GLOSS_SKIP_HOOK:"1" }`, never mutating `process.env`) and keeps `settingSources: ["user","project","local"]`; the file hook must exit before any stdout/state/log write for **both** `UserPromptSubmit` and `SessionStart`. Propagation + suppression Phase-0-verified (`MARKER_SKIPPED=true`, in-process injection unaffected). `settingSources: []` explicitly rejected (would also strip `CLAUDE.md`). Built-bundle contract tests + an SDK-coexistence smoke cover the boundary (TESTING.md). |
 | 4 | Windows Terminal UIA `TextPattern` selection support unconfirmed | Not load-bearing (copy-then-hotkey ships regardless); investigate as a fidelity upgrade |
 | 5 | Wayland PRIMARY on Mutter/KWin unconfirmed; portal coverage uneven | Support matrix + copy-then-hotkey fallback + CLI rung; re-test per distro cycle |
-| 6 | `--app` window always-on-top unverified | **Phase 0 (2026-07-14) — RESOLVED, not available:** `chrome --app` and `msedge --app` both open without `WS_EX_TOPMOST` (ex-style `0x00200100`); no Chromium switch exists and Windows 11 has no built-in per-window always-on-top affordance. The loop works with the focused normal window; a floating always-on-top window stays the v-next Electron/Tauri upgrade (§8.3). |
-| 7 | `terminalTextSelected` exact spelling is high-confidence, not source-verified | **Phase 0 (2026-07-14) — RESOLVED, spelling confirmed exact:** vscode source `src/vs/workbench/contrib/terminal/common/terminalContextKey.ts` defines `TerminalContextKeyStrings.TextSelected = 'terminalTextSelected'` (and `TerminalContextKeys.textSelected` binds that key). §7.1's `when` clause needs no change. |
+| 6 | `--app` companion-panel window always-on-top (§8.3) | **Phase 0 (2026-07-14) — RESOLVED, not available:** `chrome --app` and `msedge --app` both open without `WS_EX_TOPMOST` (ex-style `0x00200100`); no Chromium switch exists and Windows 11 has no built-in per-window always-on-top affordance. The loop works with the focused normal window; a floating always-on-top window stays the v-next Electron/Tauri upgrade (§8.3). |
+| 7 | `terminalTextSelected` context-key spelling (§7.1 `when` clause) | **Phase 0 (2026-07-14) — RESOLVED, spelling confirmed exact:** vscode source `src/vs/workbench/contrib/terminal/common/terminalContextKey.ts` defines `TerminalContextKeyStrings.TextSelected = 'terminalTextSelected'` (and `TerminalContextKeys.textSelected` binds that key). §7.1's `when` clause needs no change. |
 | 8 | Marketplace/OpenVSX publisher setup lead time | Phase E prerequisite, start early |
 | 9 | uiohook-napi maintenance (forks exist) | Interface-isolated (`SelectionSource`/`Hotkey-`); swap cost is one adapter |
 | 10 | Clipboard round-trip races (user copies during the 2-step capture) | Save/restore window is milliseconds; documented; direct-selection upgrade path via #188173 |
