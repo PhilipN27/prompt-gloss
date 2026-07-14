@@ -70,7 +70,7 @@ fact. Injection from settings-configured hooks works end-to-end today.
 | Settings merge | Hooks from user, project, local, plugin levels **merge** (all run); command hooks dedupe by identical command string + args. Live-reloaded by a file watcher on settings edits. | docs; observed live (user-level and `--settings` hooks fired together in probe) |
 | `SessionStart` | Exists; stdin has `source`: `startup` \| `resume` \| `clear` \| `compact`; supports `additionalContext` (prepended before first prompt). | docs |
 | `SessionEnd` | Exists (`reason`: `clear`/`logout`/`exit`/…); side-effects only, cannot block. Suitable for state cleanup. | docs |
-| Agent SDK parity | `hooks.UserPromptSubmit` + `additionalContext` in the SDK is what v1 ships on (ARCHITECTURE.md §3); re-verify at implementation time per §9 hook-drift risk. | v1 smoke (PR #3); carried over |
+| Agent SDK parity | `hooks.UserPromptSubmit` + `hookSpecificOutput.additionalContext` in the SDK is what v1 ships on (ARCHITECTURE.md §3). **Re-verified Phase 0 (2026-07-14) against installed SDK 0.3.207:** the type defs keep `UserPromptSubmitHookSpecificOutput.additionalContext`, and a real one-message `query()` smoke (v1's construction, `settingSources` omitted) made the model answer with a fact carried **only** by the injected card (`INJECTION_WORKED=true`). | v1 smoke (PR #3); Phase 0 live SDK smoke (§12 row 1) |
 
 ### 2.2 Hook cold-start cost (measured on this machine)
 
@@ -96,7 +96,7 @@ rejected in §13.
 |---|---|
 | Read terminal selection directly? | `Terminal.selection` is **still a proposed API** (`vscode.proposed.terminalSelection.d.ts`, tracking issue **#188173**, open since 2023, backlog). Proposed APIs cannot ship in Marketplace extensions. **Do not plan around it**; watchpoint in ROADMAP.md. |
 | Stable capture path | Execute built-in command **`workbench.action.terminal.copySelection`**, then **`vscode.env.clipboard.readText()`**, then restore the saved clipboard. This round-trip is the only stable path; there is no `getSelection` command. |
-| Gate the affordance | Context keys **`terminalFocus`** (documented) and **`terminalTextSelected`** (verified via VS Code's own default `copySelection` keybinding; exact spelling high-confidence). |
+| Gate the affordance | Context keys **`terminalFocus`** (documented) and **`terminalTextSelected`** (**source-verified Phase 0, 2026-07-14**: `TerminalContextKeyStrings.TextSelected = 'terminalTextSelected'` in vscode `src/vs/workbench/contrib/terminal/common/terminalContextKey.ts`). |
 | Context menu | `contributes.menus` supports **`terminal/context`** (and `terminal/title/context`). Caveat: when `terminal.integrated.rightClickBehavior` is `copyPaste`/`paste` (a common Windows configuration), right-click never opens the menu — the **keybinding is the primary affordance**, the menu item is secondary. |
 | Provenance source | Shell-integration API is stable since **VS Code 1.93**: `window.onDidStartTerminalShellExecution` / `onDidEndTerminalShellExecution`, `TerminalShellExecution.read()` (async stream of the command's output). No API reads arbitrary scrollback — provenance uses a rolling buffer of recent execution output (§5). |
 | Panel hosting | **`WebviewView`** contributed via `contributes.viewsContainers`/`views` can live in the **panel area next to the terminal** (docs: "rendered in the sidebar or panel areas"); `window.createWebviewPanel(…, ViewColumn.Beside)` is the editor-area alternative. `retainContextWhenHidden`, `webview.postMessage`/`onDidReceiveMessage`, `asWebviewUri` all stable — the existing React `CardPanel` rehosts cleanly (§7). |
@@ -236,17 +236,54 @@ and performs the §4.2 pruning.
 
 ### 4.5 Coexistence with the v1 web app
 
-The web app's `SdkInjector` keeps its in-process SDK hook (unchanged — v1
-stays green). Risk: if an SDK session were configured to also load project
-settings (`settingSources`), both hooks could fire on one prompt.
-Verification item for implementation (§12): confirm the SDK's default loads
-no filesystem settings hooks (v1 doesn't set `settingSources`). Regardless of
-that finding, the escape hatch **ships unconditionally in Phase A** (it is
-three lines and closes the risk permanently): the file hook exits silently
-when `GLOSS_SKIP_HOOK=1` is set (hook-contract test case, TESTING.md), and
-`SdkInjector` sets it on its session env only if Phase 0 finds settings hooks
-leak into SDK sessions. Longer-term convergence (SdkInjector adopting the
-file-backed dedup log) is a v-next cleanup, not required now.
+The web app's `SdkInjector` keeps its in-process `UserPromptSubmit` injection
+hook (unchanged — v1 stays green). **Phase 0 finding (2026-07-14, §12 row 3):**
+against the installed Agent SDK **0.3.207**, a session that omits
+`settingSources` — exactly how `SdkInjector.startSession()` builds its options
+(`packages/server/src/sdk-injector.ts`) — **does** load user/project/local
+filesystem settings and run their hooks. Evidence: the SDK type def states
+"When omitted, all sources are loaded (matches CLI defaults). Pass `[]` to
+disable filesystem settings"; and a live one-message `query()` probe with a
+project `.claude/settings.json` `UserPromptSubmit` marker hook saw that marker
+hook fire (`MARKER_FIRED=true`). So once `npx prompt-gloss init` (Phase B)
+writes the Gloss file hook into `.claude/settings.json`, an SDK session in that
+project would fire **both** the in-process hook and the file hook — injecting
+the same cards twice and producing terminal-hook state
+(`.gloss/.state/sessions/…`) and a `systemMessage` side effect.
+
+Coexistence is therefore **mandatory and unconditional** (decided by council
+with Codex, 2026-07-14 — `settingSources: []` isolation was considered and
+rejected):
+
+- **`SdkInjector` scopes `GLOSS_SKIP_HOOK=1` through the SDK `Options.env`**,
+  spreading the parent env: `env: { ...process.env, GLOSS_SKIP_HOOK: "1" }`.
+  `Options.env` *replaces* (does not merge) the subprocess environment, so the
+  spread is required or the subprocess loses inherited `PATH` / `HOME` /
+  `ANTHROPIC_API_KEY` (SDK type-def doc). It must **never** mutate
+  `process.env` (that would leak the flag to unrelated child processes and any
+  other SDK session the server spawns). Propagation + suppression are
+  Phase-0-verified: with `GLOSS_SKIP_HOOK=1` on the session env the marker hook
+  ran but honored the flag and wrote nothing (`MARKER_SKIPPED=true`,
+  `MARKER_FIRED=false`) while the in-process injection still worked
+  (`INJECTION_WORKED=true`).
+- **The file-hook bundle checks `GLOSS_SKIP_HOOK=1` first** — before parsing
+  stdin, matching, or any state/log write — and exits 0 with empty stdout, for
+  **both** `UserPromptSubmit` and `SessionStart` modes (so the web app gets
+  neither duplicate cards nor duplicate `SessionStart` framing). This invariant
+  is required from the **first shipped bundle** (the `packages/hook`/`cli`
+  packages do not exist yet — this is a spec commitment) and is pinned by the
+  built-bundle hook-contract suite (TESTING.md) plus an SDK-coexistence smoke.
+- **`SdkInjector` keeps filesystem settings enabled** — preferably explicitly,
+  `settingSources: ["user", "project", "local"]` — so the web-app agent keeps
+  loading project `CLAUDE.md` and user/project/local settings (current v1
+  behavior). **`settingSources: []` is rejected**: it would strip `CLAUDE.md`
+  and every unrelated user/project/local setting and hook to solve Gloss's own
+  duplicate hook — the wrong trade. (Descendant caveat: `Options.env` reaches
+  the subprocess and its children, so a nested `claude` launched by the SDK
+  process also suppresses its Gloss file hook — an accepted minor limit.)
+
+Longer-term convergence (SdkInjector adopting the file-backed dedup log) is a
+v-next cleanup, not required now.
 
 ---
 
@@ -406,9 +443,13 @@ The companion embeds the existing Fastify server (`@prompt-gloss/server`,
 127.0.0.1, fake-agent-independent card routes) and opens the shared panel UI
 (§7.4) at `http://127.0.0.1:<port>/panel?span=…&origin=companion` in an
 **app-mode browser window** (`chrome/msedge --app=URL`, falling back to the
-default browser). Always-on-top for app-mode windows is unverified (§12) —
-the window opens focused, which satisfies the loop; a floating native window
-is the v-next Electron/Tauri upgrade. Save feedback: OS notification (§6).
+default browser). Always-on-top for app-mode windows was **Phase-0-tested
+(2026-07-14, §12 row 6) and found unavailable**: both `chrome --app` and
+`msedge --app` windows open **without** `WS_EX_TOPMOST` (ex-style `0x00200100`),
+there is no Chromium switch for it, and Windows 11 has no built-in per-window
+always-on-top affordance. The window opens focused, which satisfies the loop; a
+floating always-on-top native window is the v-next Electron/Tauri upgrade. Save
+feedback: OS notification (§6).
 
 ---
 
@@ -491,11 +532,15 @@ ID signing + notarization — recorded so nobody discovers it in a release week.
 Each phase lands PR-sized, TDD-first, `pnpm check` green, cross-reviewed per
 CLAUDE.md. Lanes per CLAUDE.md/AGENTS.md division of labor.
 
-- **Phase 0 — contract verifications** (Claude lane, half-day): re-verify
-  Agent SDK `additionalContext` (§2.1 last row); confirm SDK sessions don't
-  load settings hooks by default (§4.5); 5-minute `--app` always-on-top test
-  (§8.3); `terminalTextSelected` spelling against the VS Code source. Outcomes
-  recorded in this file's §12 table.
+- **Phase 0 — contract verifications** (Claude lane, half-day) — **DONE
+  2026-07-14 (branch `feat/v2-verifications`); outcomes in §12 rows 1, 3, 6,
+  7:** re-verified Agent SDK `additionalContext` against installed SDK 0.3.207
+  (§2.1 last row); **determined** whether default SDK sessions load settings
+  hooks (§4.5) — they **do** (all sources load when `settingSources` is
+  omitted), so the `GLOSS_SKIP_HOOK` coexistence switch is now mandatory and
+  `Options.env`-scoped rather than conditional; ran the `--app` always-on-top
+  test (§8.3) — not available; source-verified the `terminalTextSelected`
+  spelling against the VS Code source.
 - **Phase A — core + hook** (Claude lane): `InjectionLog`
   `toJSON`/`fromJSON` (core, TDD); `CardSource.origin` (core, TDD);
   `packages/hook` with the §4 pipeline incl. `GLOSS_SKIP_HOOK` (TDD via the
@@ -530,13 +575,13 @@ Phases A→B are sequential; C and D parallelize after A. Definition of done:
 
 | # | Risk / open question | Handling |
 |---|---|---|
-| 1 | Hook contract drift (fields, caps, timeout defaults are 2.1.x behavior) | Hook-contract tests pin the shapes; live smoke before release and after CLI major bumps (TESTING.md); §2.1 table is the reference of record |
+| 1 | Hook contract drift (fields, caps, timeout defaults are 2.1.x behavior) | Hook-contract tests pin the shapes; live smoke before release and after CLI major bumps (TESTING.md); §2.1 table is the reference of record. **Phase 0 (2026-07-14) — RESOLVED for the injection contract:** against installed SDK **0.3.207**, `UserPromptSubmitHookInput.prompt` + `UserPromptSubmitHookSpecificOutput.additionalContext` are intact in the type defs and a real one-message `query()` smoke injected a card-only fact into the model's answer (`INJECTION_WORKED=true`). |
 | 2 | `systemMessage` rendering could change (docs call it a "warning message") | It's cosmetic-critical only; live smoke checks it; fallback is `prompt-gloss log` (already shipped) |
-| 3 | SDK sessions + settings hook double-injection (§4.5) | Phase 0 verification; `GLOSS_SKIP_HOOK` escape hatch specced |
+| 3 | SDK sessions load the installed Gloss settings hook → **double-injection** (§4.5) | **Phase 0 (2026-07-14) — CONFIRMED the leak:** with `settingSources` omitted (v1's construction) a project `.claude/settings.json` `UserPromptSubmit` hook fired inside a real SDK `query()` (`MARKER_FIRED=true`; SDK doc: "when omitted, all sources are loaded"). **Resolved invariant (council with Codex):** `SdkInjector` always scopes `GLOSS_SKIP_HOOK=1` via `Options.env` (`{ ...process.env, GLOSS_SKIP_HOOK:"1" }`, never mutating `process.env`) and keeps `settingSources: ["user","project","local"]`; the file hook must exit before any stdout/state/log write for **both** `UserPromptSubmit` and `SessionStart`. Propagation + suppression Phase-0-verified (`MARKER_SKIPPED=true`, in-process injection unaffected). `settingSources: []` explicitly rejected (would also strip `CLAUDE.md`). Built-bundle contract tests + an SDK-coexistence smoke cover the boundary (TESTING.md). |
 | 4 | Windows Terminal UIA `TextPattern` selection support unconfirmed | Not load-bearing (copy-then-hotkey ships regardless); investigate as a fidelity upgrade |
 | 5 | Wayland PRIMARY on Mutter/KWin unconfirmed; portal coverage uneven | Support matrix + copy-then-hotkey fallback + CLI rung; re-test per distro cycle |
-| 6 | `--app` window always-on-top unverified | Phase 0 empirical test; loop works with a focused normal window either way |
-| 7 | `terminalTextSelected` exact spelling is high-confidence, not source-verified | Phase 0: check against vscode source; trivial to fix if off |
+| 6 | `--app` window always-on-top unverified | **Phase 0 (2026-07-14) — RESOLVED, not available:** `chrome --app` and `msedge --app` both open without `WS_EX_TOPMOST` (ex-style `0x00200100`); no Chromium switch exists and Windows 11 has no built-in per-window always-on-top affordance. The loop works with the focused normal window; a floating always-on-top window stays the v-next Electron/Tauri upgrade (§8.3). |
+| 7 | `terminalTextSelected` exact spelling is high-confidence, not source-verified | **Phase 0 (2026-07-14) — RESOLVED, spelling confirmed exact:** vscode source `src/vs/workbench/contrib/terminal/common/terminalContextKey.ts` defines `TerminalContextKeyStrings.TextSelected = 'terminalTextSelected'` (and `TerminalContextKeys.textSelected` binds that key). §7.1's `when` clause needs no change. |
 | 8 | Marketplace/OpenVSX publisher setup lead time | Phase E prerequisite, start early |
 | 9 | uiohook-napi maintenance (forks exist) | Interface-isolated (`SelectionSource`/`Hotkey-`); swap cost is one adapter |
 | 10 | Clipboard round-trip races (user copies during the 2-step capture) | Save/restore window is milliseconds; documented; direct-selection upgrade path via #188173 |
