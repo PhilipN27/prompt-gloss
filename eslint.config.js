@@ -10,8 +10,7 @@ export default tseslint.config(
       "**/node_modules/**",
       "**/*.tsbuildinfo",
       "**/playwright-report/**",
-      "**/test-results/**",
-      "packages/web/e2e/**"
+      "**/test-results/**"
     ]
   },
   js.configs.recommended,
