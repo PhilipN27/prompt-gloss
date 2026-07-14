@@ -177,11 +177,17 @@ code.
 
 Test plans for the TERMINAL.md surfaces. The v1 ground rules apply verbatim,
 with one principled extension of rule 2: alongside the LLM, the **OS/editor
-input boundary** (a real human's terminal selection, a real global keypress)
-may be faked, because CI cannot synthesize it — everything downstream of that
-boundary (capture flow, matcher, budget, store, settings merge) runs real.
-This mirrors the v1 `Injector` precedent exactly: fake the boundary, never
-the pipeline, and cover the real boundary with a documented live smoke.
+boundary** may be faked, because CI cannot synthesize it — on the **input**
+side a real human's terminal selection and a real global keypress
+(`SelectionSource`, `HotkeyRegistrar`), and on the **output** side a real
+app-mode browser window and a real OS notification (`PanelOpener`, `Notifier` —
+a headless CI box has neither a display nor a notification service). Everything
+*between* those edges (capture flow, URL construction, matcher, budget, store,
+the embedded server route, settings merge) runs real. This mirrors the v1
+`Injector` precedent exactly: fake the boundary, never the pipeline, and cover
+the real boundary with a documented live smoke. A flow test asserting "OS
+notification emitted" asserts the flow *invoked* the notifier with the right
+payload; that a real toast appears is a live-smoke item.
 
 ### Hook contract tests (`packages/hook`) — written before implementation
 
@@ -266,13 +272,30 @@ Via `@vscode/test-electron` (real VS Code, headless in CI with xvfb):
 ### Companion tests (`packages/cli`, companion module)
 
 - Capture adapters live behind the `SelectionSource` interface (one per
-  OS/mechanism). Flow tests drive the real companion loop with a scripted
-  `SelectionSource` (boundary fake): hotkey event → capture → panel URL
-  opened → card saved via the real server route → OS notification emitted.
-- Windows clipboard-freshness logic (accept fresh, reject stale with the
+  OS/mechanism), paired with a `HotkeyRegistrar` per OS. Flow tests drive the
+  real companion loop with a scripted `SelectionSource` (input-boundary fake)
+  and recording `PanelOpener`/`Notifier` (output-boundary fakes): hotkey event →
+  capture → panel URL opened (asserted for span + `origin=companion`) → card
+  saved via the **real** embedded server route (`POST /api/cards`, which fires
+  the `onCardSaved` hook) → the `Notifier` is invoked with a "saved" message.
+  `runCompanion` wiring (adapter select → probe → embed server → register hotkey
+  → dispose on stop) is covered with a scripted `HotkeyRegistrar`, so hotkey
+  registration and disposal are exercised without loading `uiohook-napi` in CI.
+- `SelectionSource.capture()` returns a 4-way result — `ok` / `retryable`
+  (empty selection or stale clipboard; toast + stay armed) / `blocked`
+  (permission-denied; toast the remediation, recoverable after a grant) /
+  `unsupported` (no mechanism; route to the CLI rung). Each branch is asserted
+  in the flow test.
+- Windows clipboard-freshness logic (accept iff non-empty AND
+  changed-since-last-hotkey OR observed-within-15 s; reject stale with the
   "copy first" toast) is pure logic — unit-tested with constructed
-  timestamps/snapshots.
-- Real hotkey + real per-OS capture are live-smoke items.
+  timestamps/snapshots, including the documented content-snapshot false-accepts
+  and false-rejects.
+- `doctor` reports per-OS/session capture capability via a **non-prompting**
+  `probe()` (it must never pop a permission dialog or a Wayland
+  shortcut-registration prompt).
+- Real hotkey + real per-OS capture, the real app-mode window, and real OS
+  notifications are live-smoke items.
 
 ### Live smoke — the release gate for terminal surfaces
 

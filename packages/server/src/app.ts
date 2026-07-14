@@ -5,6 +5,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import {
   CardStore,
   matchMessage,
+  type Card,
   type NewCardInput,
   type UpdateCardInput
 } from "@prompt-gloss/core";
@@ -33,8 +34,39 @@ function isCreateRequest(v: unknown): v is CreateCardRequest {
   );
 }
 
+/** A card was persisted (TERMINAL.md §8.3/§6). The in-process companion embeds
+ *  this server and listens for this to fire an OS notification. */
+export interface CardSavedEvent {
+  readonly operation: "created" | "updated";
+  readonly card: Card;
+}
+
+/** Optional out-of-band hooks — kept OUT of `GlossServerConfig` (pure data) and
+ *  passed as a second argument so every existing `buildServer(config)` caller is
+ *  unaffected (v1 web app passes none). */
+export interface ServerHooks {
+  onCardSaved?: (event: CardSavedEvent) => void | Promise<void>;
+}
+
+/** Fire `onCardSaved` fire-and-forget, swallowing any error. A notification
+ *  failure (sync throw OR async rejection) must NEVER convert a committed save
+ *  into an HTTP 500 — that would make the UI retry and create a duplicate
+ *  `<slug>-2.md` (council 2026-07-14). */
+function fireCardSaved(hooks: ServerHooks, event: CardSavedEvent): void {
+  if (!hooks.onCardSaved) return;
+  try {
+    const result = hooks.onCardSaved(event);
+    if (result && typeof (result as Promise<void>).catch === "function") {
+      void (result as Promise<void>).catch(() => undefined);
+    }
+  } catch {
+    // best-effort notification; the card is already committed
+  }
+}
+
 export async function buildServer(
-  overrides: Partial<GlossServerConfig> = {}
+  overrides: Partial<GlossServerConfig> = {},
+  hooks: ServerHooks = {}
 ): Promise<FastifyInstance> {
   const config = resolveConfig(overrides);
   const app = Fastify({ logger: false });
@@ -90,6 +122,7 @@ export async function buildServer(
       ...(req.body.scope !== undefined ? { scope: req.body.scope } : {})
     };
     const card = await store.create(input);
+    fireCardSaved(hooks, { operation: "created", card });
     return reply.code(201).send(card);
   });
 
@@ -98,6 +131,7 @@ export async function buildServer(
     async (req, reply) => {
       const updated = await store.update(req.params.slug, req.body ?? {});
       if (!updated) return reply.code(404).send({ error: "card not found" });
+      fireCardSaved(hooks, { operation: "updated", card: updated });
       return updated;
     }
   );

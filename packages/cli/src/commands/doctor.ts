@@ -9,6 +9,7 @@ import { join } from "node:path";
 import { parse } from "jsonc-parser";
 import { GLOSS_HOOK_MARKER } from "../settings.js";
 import { glossDir, hookTargetPath, settingsFilePath, shippedBundlePath } from "../paths.js";
+import { selectAdapter } from "../companion/select.js";
 
 export interface DoctorOptions {
   projectDir: string;
@@ -108,9 +109,21 @@ export async function runDoctor(opts: DoctorOptions): Promise<DoctorResult> {
     lines.push("hook errors: none");
   }
 
-  // Companion capture support lands in Phase D (TERMINAL.md §8) — say so
-  // honestly instead of omitting the check.
-  lines.push("companion capture: not applicable yet (ships in a later release)");
+  // Companion capture support for this OS/session (TERMINAL.md §8/§9.4). The
+  // probe is non-prompting and informational — an unavailable companion never
+  // fails `doctor` (the CLI rung always works); it just prints the fix.
+  const adapter = selectAdapter();
+  if (!adapter) {
+    lines.push(`companion capture: no OS adapter for ${process.platform} — use \`prompt-gloss add\``);
+  } else {
+    try {
+      const cap = await adapter.selection.probe();
+      lines.push(`companion capture (${adapter.selection.origin}): ${cap.support} — ${cap.detail}`);
+      if (cap.remediation) lines.push(`  fix: ${cap.remediation}`);
+    } catch (err) {
+      lines.push(`companion capture: probe failed (${err instanceof Error ? err.message : String(err)})`);
+    }
+  }
 
   return { ok, report: lines.join("\n") };
 }
