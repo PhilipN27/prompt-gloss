@@ -202,12 +202,16 @@ export async function runCompanion(opts: CompanionOptions = {}): Promise<Compani
     cleanupPlaceholder();
   };
 
-  // Track the in-flight capture so stop() can await it (break-it F5).
-  let inFlight: Promise<void> = Promise.resolve();
+  // Track EVERY hotkey promise so stop() awaits any genuinely-running capture
+  // (break-it F5). The flow's reentrancy guard makes overlapping presses resolve
+  // immediately, so a single reassigned reference could point at a dropped call
+  // rather than the running one — a set avoids that.
+  const outstanding = new Set<Promise<void>>();
   const accelerator = opts.accelerator ?? defaultAccelerator(env.platform);
   const reg = await adapter.hotkey.register(accelerator, () => {
-    inFlight = flow.onHotkey();
-    return inFlight;
+    const p = flow.onHotkey().finally(() => outstanding.delete(p));
+    outstanding.add(p);
+    return p;
   });
   if (!reg.ok) {
     log(`Gloss companion: couldn't bind the hotkey (${accelerator}). ${reg.detail}`);
@@ -243,7 +247,7 @@ export async function runCompanion(opts: CompanionOptions = {}): Promise<Compani
     stop: async () => {
       stopped = true; // block new panel opens before we start tearing down
       await reg.dispose();
-      await inFlight.catch(() => undefined);
+      await Promise.allSettled([...outstanding]);
       await closeAll();
     }
   };
