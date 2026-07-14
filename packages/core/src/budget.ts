@@ -47,12 +47,40 @@ export class InjectionLog {
   shouldInject(card: Pick<Card, "slug" | "updated">): boolean {
     const last = this.lastInjectedUpdated.get(card.slug);
     if (last === undefined) return true;
-    return new Date(card.updated).getTime() > new Date(last).getTime();
+    const lastMs = new Date(last).getTime();
+    const updatedMs = new Date(card.updated).getTime();
+    // Fail open: an unparseable timestamp (hand-corrupted state) must never
+    // suppress a card forever — a duplicate injection beats a silent one.
+    if (Number.isNaN(lastMs) || Number.isNaN(updatedMs)) return true;
+    return updatedMs > lastMs;
   }
 
   /** Record that a card was injected at its current `updated`. */
   record(card: Pick<Card, "slug" | "updated">): void {
     this.lastInjectedUpdated.set(card.slug, card.updated);
+  }
+
+  /** Plain slug → updated-ISO map, the file-backed twin's payload (TERMINAL.md §4.2). */
+  toJSON(): Record<string, string> {
+    return Object.fromEntries(this.lastInjectedUpdated);
+  }
+
+  /**
+   * Rebuild a log from a parsed JSON value. Total: corrupted input (non-object,
+   * non-string entries) degrades to skipping the bad parts — a broken session
+   * state file must never break the hook.
+   */
+  static fromJSON(value: unknown): InjectionLog {
+    const log = new InjectionLog();
+    if (value === null || typeof value !== "object" || Array.isArray(value)) {
+      return log;
+    }
+    for (const [slug, updated] of Object.entries(value)) {
+      if (typeof updated === "string") {
+        log.lastInjectedUpdated.set(slug, updated);
+      }
+    }
+    return log;
   }
 }
 

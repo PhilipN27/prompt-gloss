@@ -17,6 +17,16 @@ export default defineConfig({
         }
       },
       {
+        // Hook-contract suite (TESTING.md): spawns the REAL built bundle, so it
+        // is not part of `pnpm test` — run via `pnpm test:hook` (builds first).
+        test: {
+          name: "hook",
+          include: ["packages/hook/test/**/*.test.ts"],
+          environment: "node",
+          testTimeout: 20000
+        }
+      },
+      {
         test: {
           name: "eval",
           include: ["packages/core/eval/**/*.test.ts"],

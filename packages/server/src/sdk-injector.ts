@@ -39,6 +39,38 @@ const SYSTEM_APPEND =
   "as authoritative background the user attached to a term in their message. It " +
   "is not part of their visible prompt.";
 
+export interface SessionOptionsInput {
+  projectDir: string;
+  userPromptSubmitHook: (input: HookInput) => Promise<HookJSONOutput>;
+  resumeSessionId: string | null;
+  /** Injectable for tests; defaults to process.env. */
+  parentEnv?: NodeJS.ProcessEnv;
+}
+
+/**
+ * Build the SDK session Options. Coexistence with the Gloss file hook
+ * (TERMINAL.md §4.5, Phase 0 finding) is armed here:
+ *
+ * - `env` REPLACES the subprocess environment (SDK doc), so the parent env is
+ *   spread in — dropping the spread would strip PATH/HOME/ANTHROPIC_API_KEY.
+ *   GLOSS_SKIP_HOOK=1 rides on top, scoped to this session only; process.env
+ *   is never mutated (that would leak the flag to unrelated children).
+ * - `settingSources` stays explicitly ["user","project","local"] — the CLI
+ *   default — so the agent keeps loading CLAUDE.md and user/project/local
+ *   settings. `settingSources: []` is rejected by the spec (§4.5).
+ */
+export function buildSessionOptions(input: SessionOptionsInput): Options {
+  const parentEnv = input.parentEnv ?? process.env;
+  return {
+    cwd: input.projectDir,
+    systemPrompt: { type: "preset", preset: "claude_code", append: SYSTEM_APPEND },
+    hooks: { UserPromptSubmit: [{ hooks: [input.userPromptSubmitHook] }] },
+    env: { ...parentEnv, GLOSS_SKIP_HOOK: "1" },
+    settingSources: ["user", "project", "local"],
+    ...(input.resumeSessionId ? { resume: input.resumeSessionId } : {})
+  };
+}
+
 interface Pending {
   messageId: string;
   text: string;
@@ -130,12 +162,11 @@ export class SdkInjector implements Injector {
     if (this.started) return;
     this.started = true;
 
-    const options: Options = {
-      cwd: this.projectDir,
-      systemPrompt: { type: "preset", preset: "claude_code", append: SYSTEM_APPEND },
-      hooks: { UserPromptSubmit: [{ hooks: [this.userPromptSubmitHook] }] },
-      ...(this.resumeSessionId ? { resume: this.resumeSessionId } : {})
-    };
+    const options = buildSessionOptions({
+      projectDir: this.projectDir,
+      userPromptSubmitHook: this.userPromptSubmitHook,
+      resumeSessionId: this.resumeSessionId
+    });
 
     const q = query({ prompt: this.streamingInput(), options });
     void this.consume(q);

@@ -2,6 +2,7 @@
 export type {
   Card,
   CardFrontmatter,
+  CardOrigin,
   CardScope,
   CardSource,
   Index,

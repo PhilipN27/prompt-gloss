@@ -44,3 +44,30 @@ jobs:
         run: |
           pnpm --filter @prompt-gloss/web exec playwright install --with-deps chromium
           pnpm test:e2e
+
+  # Cross-platform merge gate for the terminal injection path (TESTING.md CI
+  # section): the hook bundle runs on users' machines in three OS flavors, so
+  # this is the only matrix job. The CLI suite joins it in Phase B.
+  hook-contract:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Hook contract tests (real bundle)
+        run: pnpm test:hook

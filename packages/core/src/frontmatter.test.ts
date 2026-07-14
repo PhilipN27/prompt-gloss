@@ -57,6 +57,45 @@ describe("serializeCard / parseCardFile round-trip", () => {
     expect(parsed.card).toEqual(card);
   });
 
+  it("round-trips source.origin when present (TERMINAL.md §5)", () => {
+    const card: Card = {
+      ...baseCard,
+      source: { span: "xyz", message: "excerpt", origin: "vscode-terminal" }
+    };
+    const parsed = parseCardFile(serializeCard(card), card.slug);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.card).toEqual(card);
+    expect(parsed.card.source.origin).toBe("vscode-terminal");
+  });
+
+  it("omits origin entirely when absent (v1 card files stay byte-identical)", () => {
+    const text = serializeCard(baseCard);
+    expect(text).not.toContain("origin");
+    const parsed = parseCardFile(text, baseCard.slug);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect("origin" in parsed.card.source).toBe(false);
+  });
+
+  it("drops an unknown origin value instead of failing the parse", () => {
+    const text = [
+      "---",
+      "term: xyz",
+      "source:",
+      "  span: xyz",
+      "  message: m",
+      "  origin: teleport",
+      "---",
+      "",
+      "body"
+    ].join("\n");
+    const parsed = parseCardFile(text, "xyz");
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.card.source.origin).toBeUndefined();
+  });
+
   it("preserves a multi-paragraph markdown body verbatim", () => {
     const body = "# Heading\n\nPara one.\n\n- bullet\n- bullet\n\nPara two.";
     const card: Card = { ...baseCard, body };

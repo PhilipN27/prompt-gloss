@@ -4,7 +4,7 @@
 // a warning rather than crashing (a first-class requirement).
 
 import matter from "gray-matter";
-import type { Card, CardFrontmatter, CardScope } from "./types.js";
+import type { Card, CardFrontmatter, CardOrigin, CardScope } from "./types.js";
 
 export type ParseResult = { ok: true; card: Card } | { ok: false; reason: string };
 
@@ -45,10 +45,24 @@ function coerceDate(value: unknown, fallback: string): string {
   return fallback;
 }
 
+const VALID_ORIGINS: readonly CardOrigin[] = ["web", "vscode-terminal", "companion", "cli"];
+
 function coerceSource(value: unknown): Card["source"] {
   if (value && typeof value === "object") {
     const v = value as Record<string, unknown>;
-    return { span: coerceString(v.span), message: coerceString(v.message) };
+    const source: Card["source"] = {
+      span: coerceString(v.span),
+      message: coerceString(v.message)
+    };
+    // Optional origin (TERMINAL.md §5): keep only known values; an unknown one
+    // is dropped, never a parse failure.
+    if (
+      typeof v.origin === "string" &&
+      (VALID_ORIGINS as readonly string[]).includes(v.origin)
+    ) {
+      source.origin = v.origin as CardOrigin;
+    }
+    return source;
   }
   return { span: "", message: "" };
 }
