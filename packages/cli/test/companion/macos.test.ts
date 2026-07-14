@@ -242,11 +242,20 @@ describe("createMacosAdapter — hotkey.register()", () => {
     await expect(reg.dispose()).resolves.toBeUndefined();
   });
 
-  it("resolves ok:false gracefully with the REAL default deps in this environment (no uiohook-napi installed)", async () => {
-    // No overrides at all: exercises the real lazy `import("uiohook-napi")`
-    // path. This package genuinely is not installed in this environment, so
-    // this proves the try/catch degrades honestly instead of crashing.
-    const adapter = createMacosAdapter({ platform: "darwin", env: {} });
+  it("resolves ok:false gracefully when the uiohook loader fails (missing prebuild)", async () => {
+    // Inject a throwing loader rather than relying on the real
+    // `import("uiohook-napi")`: the package IS installed in CI now, and loading
+    // + starting the real native hook on a headless runner would grab the X11
+    // display and throw an async unhandled rejection. A throwing loader proves
+    // the same thing — register() degrades to ok:false, never crashes.
+    const adapter = createMacosAdapter(
+      { platform: "darwin", env: {} },
+      {
+        loadUiohook: async () => {
+          throw new Error("uiohook-napi prebuild unavailable");
+        }
+      }
+    );
     const reg = await adapter.hotkey.register("cmd+alt+j", () => undefined);
     expect(reg.ok).toBe(false);
     expect(reg.detail).toContain("Input Monitoring");
