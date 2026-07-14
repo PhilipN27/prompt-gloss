@@ -47,7 +47,12 @@ export class InjectionLog {
   shouldInject(card: Pick<Card, "slug" | "updated">): boolean {
     const last = this.lastInjectedUpdated.get(card.slug);
     if (last === undefined) return true;
-    return new Date(card.updated).getTime() > new Date(last).getTime();
+    const lastMs = new Date(last).getTime();
+    const updatedMs = new Date(card.updated).getTime();
+    // Fail open: an unparseable timestamp (hand-corrupted state) must never
+    // suppress a card forever — a duplicate injection beats a silent one.
+    if (Number.isNaN(lastMs) || Number.isNaN(updatedMs)) return true;
+    return updatedMs > lastMs;
   }
 
   /** Record that a card was injected at its current `updated`. */

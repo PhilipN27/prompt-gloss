@@ -17,6 +17,7 @@ import {
   unlinkSync,
   writeFileSync
 } from "node:fs";
+import { createHash } from "node:crypto";
 import { join } from "node:path";
 import {
   CardStore,
@@ -108,8 +109,25 @@ function resolveBudget(projectDir: string): BudgetOptions {
 
 function sessionFilePath(projectDir: string, sessionId: string): string {
   // session_id comes from Claude Code (a UUID), but never trust it as a path.
-  const safe = sessionId.replace(/[^A-Za-z0-9._-]/g, "_");
-  return join(stateDir(projectDir), "sessions", `${safe}.json`);
+  // The hash suffix keys the file to the RAW id, so lossy sanitization (or a
+  // case-insensitive filesystem, or a DOS-reserved basename) can never merge
+  // two distinct sessions' dedup state.
+  const safe = sessionId.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 64);
+  const hash = createHash("sha256").update(sessionId).digest("hex").slice(0, 8);
+  return join(stateDir(projectDir), "sessions", `${safe}-${hash}.json`);
+}
+
+/** Create .gloss/.state, self-gitignored (TERMINAL.md §4.2) — the hook may be
+ * the first writer in a project where the store never created it. */
+function ensureStateDir(projectDir: string): void {
+  const dir = stateDir(projectDir);
+  mkdirSync(dir, { recursive: true });
+  const gitignore = join(dir, ".gitignore");
+  try {
+    writeFileSync(gitignore, "*\n", { flag: "wx" });
+  } catch {
+    // Already present — fine.
+  }
 }
 
 /** Missing file → empty log. Unparseable JSON → throw (catch-all handles it). */
@@ -121,13 +139,15 @@ function loadSessionLog(path: string): InjectionLog {
     return new InjectionLog();
   }
   const parsed = JSON.parse(raw) as Record<string, unknown>;
+  // Unknown schema version → start fresh (worst case one duplicate injection).
+  if (parsed.version !== 1) return new InjectionLog();
   return InjectionLog.fromJSON(parsed.injected);
 }
 
 /** Atomic write: same-dir tmp file + rename (§4.2). */
-function saveSessionLog(path: string, log: InjectionLog): void {
-  const dir = join(path, "..");
-  mkdirSync(dir, { recursive: true });
+function saveSessionLog(projectDir: string, path: string, log: InjectionLog): void {
+  ensureStateDir(projectDir);
+  mkdirSync(join(path, ".."), { recursive: true });
   const tmp = `${path}.${process.pid}.${Math.random().toString(36).slice(2)}.tmp`;
   const doc = {
     version: 1,
@@ -150,11 +170,13 @@ function withinCap(payload: string): boolean {
 function logInjection(projectDir: string, payload: HookPayload, slugs: string[]): void {
   const record = {
     ts: new Date().toISOString(),
-    sessionId: payload.session_id,
-    promptId: payload.prompt_id ?? "",
+    // Clamp ids so a record always stays under the atomic small-write
+    // threshold that makes single-call appends torn-line-safe (§4.2).
+    sessionId: payload.session_id.slice(0, 200),
+    promptId: (payload.prompt_id ?? "").slice(0, 200),
     slugs
   };
-  mkdirSync(stateDir(projectDir), { recursive: true });
+  ensureStateDir(projectDir);
   // One line per record in a SINGLE appendFileSync call (O_APPEND) so
   // concurrent hook processes never interleave partial lines (§4.2).
   appendFileSync(join(stateDir(projectDir), "injections.jsonl"), JSON.stringify(record) + "\n");
@@ -181,8 +203,15 @@ async function runUserPromptSubmit(payload: HookPayload, projectDir: string): Pr
   const packed = packInjection(cards, log, resolveBudget(projectDir));
   if (packed.injectedSlugs.length === 0 || !withinCap(packed.payload)) return;
 
-  saveSessionLog(sessionPath, log);
-  logInjection(projectDir, payload, packed.injectedSlugs);
+  saveSessionLog(projectDir, sessionPath, log);
+  // Best-effort: a broken audit log must not swallow the injection itself
+  // (dedup state is already committed — losing the emission too would
+  // permanently dedup a card that never reached the model).
+  try {
+    logInjection(projectDir, payload, packed.injectedSlugs);
+  } catch (err) {
+    logError(projectDir, err);
+  }
 
   const noun = packed.injectedSlugs.length === 1 ? "card" : "cards";
   const output = {
@@ -265,8 +294,10 @@ async function main(): Promise<void> {
 
 function logError(projectDir: string, err: unknown): void {
   try {
-    mkdirSync(stateDir(projectDir), { recursive: true });
-    const detail = err instanceof Error ? (err.stack ?? err.message) : String(err);
+    ensureStateDir(projectDir);
+    // Truncated: V8 parse errors quote their input, and this file must never
+    // accumulate prompt text (privacy) or grow without bound.
+    const detail = (err instanceof Error ? (err.stack ?? err.message) : String(err)).slice(0, 500);
     appendFileSync(
       join(stateDir(projectDir), "hook-errors.log"),
       `${new Date().toISOString()} ${detail}\n`

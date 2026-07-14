@@ -11,7 +11,8 @@ import {
   writeFileSync,
   mkdirSync
 } from "node:fs";
-import { join } from "node:path";
+import { createHash } from "node:crypto";
+import { basename, join } from "node:path";
 import {
   makeProject,
   promptPayload,
@@ -25,8 +26,12 @@ function stateDir(projectDir: string): string {
   return join(projectDir, ".gloss", ".state");
 }
 
+// Mirrors the bundle's naming: sanitized id + 8-char sha256 of the raw id,
+// so lossy sanitization can never merge two sessions' dedup state.
 function sessionFile(projectDir: string, sessionId: string): string {
-  return join(stateDir(projectDir), "sessions", `${sessionId}.json`);
+  const safe = sessionId.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 64);
+  const hash = createHash("sha256").update(sessionId).digest("hex").slice(0, 8);
+  return join(stateDir(projectDir), "sessions", `${safe}-${hash}.json`);
 }
 
 describe("match → contract", () => {
@@ -41,14 +46,19 @@ describe("match → contract", () => {
     const hso = out.hookSpecificOutput as Record<string, unknown>;
     expect(hso.hookEventName).toBe("UserPromptSubmit");
     const ctx = hso.additionalContext as string;
-    // Snapshot-locked <gloss-context> wrapper (same format as v1's injector).
-    expect(ctx.startsWith("<gloss-context>\n")).toBe(true);
-    expect(ctx.endsWith("</gloss-context>")).toBe(true);
-    expect(ctx).toContain(
-      "The user has attached the following context cards to terms in their message."
+    // Snapshot-locked <gloss-context> wrapper — exact string, so any format
+    // drift (or smuggled extra text) is a visible test failure.
+    expect(ctx).toBe(
+      [
+        "<gloss-context>",
+        "The user has attached the following context cards to terms in their message.",
+        "Treat them as authoritative background provided by the user.",
+        '<card term="xyz" file=".gloss/cards/xyz.md">',
+        "xyz is the metrics panel.",
+        "</card>",
+        "</gloss-context>"
+      ].join("\n")
     );
-    expect(ctx).toContain('<card term="xyz"');
-    expect(ctx).toContain("xyz is the metrics panel.");
     expect(out.systemMessage).toBe("Gloss: injected 1 card (xyz)");
   });
 
@@ -123,7 +133,37 @@ describe("session dedup across invocations", () => {
     writeCard(dir, { slug: "xyz" });
     runHook(dir, JSON.stringify(promptPayload(dir, "about xyz")));
     const files = readdirSync(join(stateDir(dir), "sessions"));
-    expect(files).toEqual(["sess-default.json"]);
+    expect(files).toEqual([basename(sessionFile(dir, "sess-default"))]);
+  });
+
+  it("session ids that sanitize identically never share dedup state", () => {
+    const dir = makeProject();
+    writeCard(dir, { slug: "xyz" });
+    const a = runHook(dir, JSON.stringify(promptPayload(dir, "about xyz", { session_id: "a/b" })));
+    const b = runHook(dir, JSON.stringify(promptPayload(dir, "about xyz", { session_id: "a?b" })));
+    // Both sessions inject fresh — no filename collision.
+    expect(a.stdout).not.toBe("");
+    expect(b.stdout).not.toBe("");
+    expect(readdirSync(join(stateDir(dir), "sessions"))).toHaveLength(2);
+  });
+
+  it("a state file with an unknown schema version is treated as empty (fresh inject)", () => {
+    const dir = makeProject();
+    writeCard(dir, { slug: "xyz", updated: "2026-07-13T00:00:00.000Z" });
+    mkdirSync(join(stateDir(dir), "sessions"), { recursive: true });
+    writeFileSync(
+      sessionFile(dir, "sess-default"),
+      JSON.stringify({ version: 999, injected: { xyz: "2026-07-13T00:00:00.000Z" } })
+    );
+    const res = runHook(dir, JSON.stringify(promptPayload(dir, "about xyz")));
+    expect(res.stdout).not.toBe("");
+  });
+
+  it("self-gitignores .gloss/.state when the hook creates it", () => {
+    const dir = makeProject();
+    writeCard(dir, { slug: "xyz" });
+    runHook(dir, JSON.stringify(promptPayload(dir, "about xyz")));
+    expect(readFileSync(join(stateDir(dir), ".gitignore"), "utf8")).toBe("*\n");
   });
 });
 

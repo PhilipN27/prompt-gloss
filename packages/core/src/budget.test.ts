@@ -60,6 +60,11 @@ describe("InjectionLog — toJSON / fromJSON (file-backed twin, TERMINAL.md §4.
     }
   });
 
+  it("an unparseable stored timestamp fails open (card injects again)", () => {
+    const log = InjectionLog.fromJSON({ a: "not-a-date" });
+    expect(log.shouldInject({ slug: "a", updated: "2026-07-13T01:00:00.000Z" })).toBe(true);
+  });
+
   it("fromJSON skips non-string entry values, keeping the valid ones", () => {
     const log = InjectionLog.fromJSON({
       good: "2026-07-13T01:00:00.000Z",
