@@ -10,6 +10,7 @@
     "noEmit": true,
     "tsBuildInfoFile": "./tsconfig.tsbuildinfo"
   },
+  "references": [{ "path": "../core" }, { "path": "../panel-ui" }],
   "include": ["src/**/*.ts", "src/**/*.tsx"],
   "exclude": ["dist", "out", "test"]
 }

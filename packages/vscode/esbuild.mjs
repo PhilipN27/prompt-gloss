@@ -17,7 +17,8 @@ await Promise.all([
     target: "node20",
     external: ["vscode"],
     alias: {
-      "@prompt-gloss/core": join(pkgDir, "..", "core", "src", "index.ts")
+      "@prompt-gloss/core": join(pkgDir, "..", "core", "src", "index.ts"),
+      "@prompt-gloss/panel-ui": join(pkgDir, "..", "panel-ui", "src", "index.ts")
     },
     logLevel: "info"
   }),
