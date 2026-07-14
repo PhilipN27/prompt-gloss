@@ -20,6 +20,7 @@
     "test": "vitest run --project unit",
     "eval:matcher": "vitest run --project eval",
     "test:e2e": "pnpm --filter \"@prompt-gloss/web\" test:e2e",
+    "test:hook": "pnpm --filter \"@prompt-gloss/hook\" build && vitest run --project hook",
     "check": "pnpm lint && pnpm typecheck && pnpm test && pnpm eval:matcher",
     "postinstall": "node scripts/install-hooks.mjs"
   },

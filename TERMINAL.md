@@ -174,6 +174,17 @@ claude (any terminal) ── UserPromptSubmit ──> Git Bash/sh: node .gloss/h
   with the existing `…[truncated by Gloss]` marker) so a raised
   `GLOSS_INJECT_BUDGET` can never trip Claude Code's overflow-to-file
   behavior. `systemMessage` is short by construction.
+  *Pinned implementation (Phase A, council with Codex 2026-07-14):* the clamp
+  is applied as a **token-budget ceiling**, not a string slice — both the
+  budget and the per-card cap are capped at ⌊(9500 − 300)/4⌋ = 2,300 tokens
+  before packing, which (with `estimateTokens = ceil(chars/4)`) makes a
+  >9,500-char payload unreachable while keeping card markup well-formed and
+  `injectedSlugs`/dedup/`systemMessage` truthful. A defensive length check
+  remains as a drop-everything backstop.
+  *Pinned config knobs (Phase A):* `.gloss/config.json` may carry
+  `{ "injectBudget": <tokens>, "cardCap": <tokens> }`; the
+  `GLOSS_INJECT_BUDGET` / `GLOSS_CARD_CAP` environment variables take
+  precedence over the file.
 - **No matcher support in the event** (§2.1): the hook always runs and
   decides internally; no-match → print nothing, exit 0 (silent, no
   systemMessage — "no match, no noise", as v1).
