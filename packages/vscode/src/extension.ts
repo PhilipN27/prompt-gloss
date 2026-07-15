@@ -1,9 +1,11 @@
 import type { Card } from "@prompt-gloss/core";
+import { draftFromCard } from "@prompt-gloss/panel-ui";
 import * as vscode from "vscode";
 import { captureSelection, type CaptureContext } from "./capture.js";
 import { CardService } from "./cardService.js";
 import {
   isWebviewToHostMessage,
+  toCardSummary,
   type HostToWebviewMessage,
   type SaveCardInput
 } from "./messaging.js";
@@ -17,17 +19,30 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** Last path segment of a workspace folder — the project label shown in the list. */
+function projectName(folderUri: vscode.Uri): string {
+  const segments = folderUri.path.split("/").filter((segment) => segment.length > 0);
+  return segments[segments.length - 1] ?? folderUri.path;
+}
+
 class CardPanelController implements vscode.WebviewViewProvider, vscode.Disposable {
   private view: vscode.WebviewView | undefined;
   private viewSubscriptions: vscode.Disposable | undefined;
   private ready = false;
   private activeContextId: number | null = null;
+  private nextId = 1;
   private readonly captureContexts = new Map<number, CaptureContext>();
 
   public constructor(
     private readonly extensionUri: vscode.Uri,
     private readonly cardService: CardService
   ) {}
+
+  public allocateId(): number {
+    const id = this.nextId;
+    this.nextId += 1;
+    return id;
+  }
 
   public resolveWebviewView(webviewView: vscode.WebviewView): void {
     this.disposeViewSubscriptions();
@@ -48,6 +63,13 @@ class CardPanelController implements vscode.WebviewViewProvider, vscode.Disposab
         });
       }
     );
+    const visibilitySubscription = webviewView.onDidChangeVisibility(() => {
+      // Re-scope the browse list to the active project each time the panel is
+      // revealed — unless a capture/edit form is currently open.
+      if (webviewView.visible && this.activeContextId === null) {
+        void this.postList();
+      }
+    });
     const disposeSubscription = webviewView.onDidDispose(() => {
       if (this.view === webviewView) {
         this.view = undefined;
@@ -59,6 +81,7 @@ class CardPanelController implements vscode.WebviewViewProvider, vscode.Disposab
     });
     this.viewSubscriptions = vscode.Disposable.from(
       messageSubscription,
+      visibilitySubscription,
       disposeSubscription
     );
   }
@@ -71,6 +94,11 @@ class CardPanelController implements vscode.WebviewViewProvider, vscode.Disposab
     await focus;
   }
 
+  /** Refresh the browse list for the active project (no-op while an edit is open). */
+  public async refreshList(): Promise<void> {
+    if (this.activeContextId === null) await this.postList();
+  }
+
   private async postContext(id: number): Promise<void> {
     if (!this.ready || this.view === undefined) return;
     const captureContext = this.captureContexts.get(id);
@@ -80,6 +108,20 @@ class CardPanelController implements vscode.WebviewViewProvider, vscode.Disposab
       id,
       draft: captureContext.draft
     };
+    await this.view.webview.postMessage(message);
+  }
+
+  private async postList(): Promise<void> {
+    if (!this.ready || this.view === undefined) return;
+    const folderUri = this.cardService.resolveActiveFolderUri();
+    const message: HostToWebviewMessage =
+      folderUri === null
+        ? { type: "list", project: "", cards: [] }
+        : {
+            type: "list",
+            project: projectName(folderUri),
+            cards: (await this.cardService.list(folderUri)).map(toCardSummary)
+          };
     await this.view.webview.postMessage(message);
   }
 
@@ -106,6 +148,7 @@ class CardPanelController implements vscode.WebviewViewProvider, vscode.Disposab
       );
       this.forgetContext(id);
       this.savedFeedback(card);
+      await this.postList();
     } catch (error) {
       captureContext.draft = {
         ...captureContext.draft,
@@ -126,11 +169,30 @@ class CardPanelController implements vscode.WebviewViewProvider, vscode.Disposab
     try {
       await this.cardService.remove(slug, captureContext.folderUri);
       this.forgetContext(id);
+      await this.postList();
     } catch (error) {
       this.activeContextId = id;
       await vscode.window.showErrorMessage(`Gloss: ${errorMessage(error)}`);
       await this.postContext(id);
     }
+  }
+
+  /** Open an existing project card from the browse list in the edit form. */
+  private async editCard(slug: string): Promise<void> {
+    const folderUri = this.cardService.resolveActiveFolderUri();
+    if (folderUri === null) return;
+    const card = await this.cardService.get(slug, folderUri);
+    if (card === null) {
+      // Deleted out of band — refresh so the stale row disappears.
+      await this.postList();
+      return;
+    }
+    await this.openPanel({
+      id: this.allocateId(),
+      draft: draftFromCard(card),
+      folderUri,
+      source: { ...card.source, origin: "vscode-terminal" }
+    });
   }
 
   private disposeViewSubscriptions(): void {
@@ -155,6 +217,8 @@ class CardPanelController implements vscode.WebviewViewProvider, vscode.Disposab
         this.ready = true;
         if (this.activeContextId !== null) {
           await this.postContext(this.activeContextId);
+        } else {
+          await this.postList();
         }
         return;
       case "save":
@@ -163,14 +227,20 @@ class CardPanelController implements vscode.WebviewViewProvider, vscode.Disposab
       case "delete":
         await this.remove(message.id, message.slug);
         return;
+      case "edit":
+        await this.editCard(message.slug);
+        return;
+      case "refresh":
+        await this.postList();
+        return;
       case "close":
         this.forgetContext(message.id);
+        await this.postList();
     }
   }
 }
 
 export function activate(context: vscode.ExtensionContext): void {
-  let nextCaptureId = 1;
   const cardService = new CardService();
   const provenance = new ProvenanceTracker(context);
   const panelController = new CardPanelController(
@@ -186,12 +256,10 @@ export function activate(context: vscode.ExtensionContext): void {
     CAPTURE_COMMAND,
     async (): Promise<void> => {
       try {
-        const captureId = nextCaptureId;
-        nextCaptureId += 1;
         const captureContext = await captureSelection(
           provenance,
           cardService,
-          captureId
+          panelController.allocateId()
         );
         if (captureContext !== null) {
           await panelController.openPanel(captureContext);
@@ -201,11 +269,17 @@ export function activate(context: vscode.ExtensionContext): void {
       }
     }
   );
+  // Switching the active terminal can change which project is in focus — keep
+  // the browse list scoped to it.
+  const terminalChange = vscode.window.onDidChangeActiveTerminal(() => {
+    void panelController.refreshList();
+  });
 
   context.subscriptions.push(
     panelController,
     viewRegistration,
-    commandRegistration
+    commandRegistration,
+    terminalChange
   );
 }
 
