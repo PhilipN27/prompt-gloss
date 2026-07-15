@@ -7,6 +7,8 @@ export default tseslint.config(
   {
     ignores: [
       "**/dist/**",
+      "**/out/**",
+      "**/.vscode-test/**",
       "**/node_modules/**",
       "**/*.tsbuildinfo",
       "**/playwright-report/**",

@@ -1,0 +1,100 @@
+.gloss-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 320px;
+  height: 100vh;
+  background: var(--gloss-bg);
+  border-left: 1px solid var(--gloss-border);
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  z-index: 10;
+  overflow-y: auto;
+}
+
+.gloss-panel__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.gloss-panel__close {
+  border: none;
+  background: none;
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--gloss-text-muted);
+}
+
+.gloss-panel__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  color: var(--gloss-text-muted);
+}
+
+.gloss-panel__field input,
+.gloss-panel__field textarea,
+.gloss-panel__field select {
+  font: inherit;
+  font-size: 0.85rem;
+  /* Fall back to the panel surface tokens so the web app is unchanged; the
+     VS Code webview maps these to --vscode-input-* so text stays legible on
+     the editor's input background instead of an unthemed white default. */
+  color: var(--gloss-input-text, var(--gloss-text));
+  background: var(--gloss-input-bg, var(--gloss-bg));
+  padding: 0.4rem;
+  border: 1px solid var(--gloss-border);
+  border-radius: 5px;
+  resize: vertical;
+}
+
+.gloss-panel__field--disabled {
+  opacity: 0.6;
+}
+
+.gloss-panel__hint {
+  font-size: 0.7rem;
+  font-style: italic;
+}
+
+.gloss-panel__actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin-top: auto;
+}
+
+.gloss-panel__save {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.45rem 1rem;
+  border: 1px solid var(--gloss-accent);
+  background: var(--gloss-accent);
+  color: white;
+  border-radius: 6px;
+  cursor: pointer;
+  margin-left: auto;
+}
+
+.gloss-panel__save:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.gloss-panel__delete {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.45rem 1rem;
+  border: 1px solid var(--gloss-danger);
+  background: var(--gloss-bg);
+  color: var(--gloss-danger);
+  border-radius: 6px;
+  cursor: pointer;
+}

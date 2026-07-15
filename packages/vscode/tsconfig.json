@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "types": ["vscode"],
+    "noEmit": true,
+    "tsBuildInfoFile": "./tsconfig.tsbuildinfo"
+  },
+  "references": [{ "path": "../core" }, { "path": "../panel-ui" }],
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "exclude": ["dist", "out", "test"]
+}
