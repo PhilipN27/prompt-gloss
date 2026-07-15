@@ -62,14 +62,14 @@ suite("Activation and contributions", () => {
           entry.command === "gloss.captureSelection" &&
           entry.key === "ctrl+alt+g" &&
           entry.mac === "cmd+alt+g" &&
-          entry.when === "terminalFocus && terminalTextSelected"
+          entry.when === "terminalFocus"
       )
     );
     assert.ok(
       manifest.contributes.menus["terminal/context"].some(
         (entry) =>
           entry.command === "gloss.captureSelection" &&
-          entry.when === "terminalFocus && terminalTextSelected"
+          entry.when === "terminalFocus"
       )
     );
     assert.ok(
