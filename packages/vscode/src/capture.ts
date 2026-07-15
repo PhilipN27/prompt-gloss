@@ -1,6 +1,7 @@
 import type { CardSource } from "@prompt-gloss/core";
 import { draftFromCard, draftFromSelection, type PanelDraft } from "@prompt-gloss/panel-ui";
 import * as vscode from "vscode";
+import { resolveCaptureSpan } from "./capture-span.js";
 import type { CardService } from "./cardService.js";
 import type { ProvenanceTracker } from "./provenance.js";
 
@@ -22,7 +23,13 @@ export async function captureSelection(
     return null;
   }
 
-  const saved = await vscode.env.clipboard.readText();
+  // Claude Code's TUI enables mouse reporting, so a drag never yields a native
+  // terminal selection — Claude consumes the mouse events and auto-copies the
+  // selection to the clipboard. Read the clipboard first (that IS the user's
+  // selection there), then probe for a native selection via copySelection for
+  // plain shells / mouse-off TUIs. The sentinel dance tells the two apart
+  // without clobbering the clipboard we just read.
+  const clipboard = await vscode.env.clipboard.readText();
   const sentinel = `__prompt_gloss_no_selection_${globalThis.crypto.randomUUID()}__`;
   let copied: string;
 
@@ -31,17 +38,15 @@ export async function captureSelection(
     await vscode.commands.executeCommand("workbench.action.terminal.copySelection");
     copied = await vscode.env.clipboard.readText();
   } finally {
-    await vscode.env.clipboard.writeText(saved);
+    await vscode.env.clipboard.writeText(clipboard);
   }
 
-  if (copied === sentinel) {
-    void vscode.window.showInformationMessage("Select terminal text first");
-    return null;
-  }
-
-  const span = copied.trim();
-  if (span.length === 0) {
-    void vscode.window.showInformationMessage("Select terminal text first");
+  const nativeSelection = copied === sentinel ? "" : copied;
+  const span = resolveCaptureSpan({ nativeSelection, clipboard });
+  if (span === null) {
+    void vscode.window.showInformationMessage(
+      "Select some terminal text first (drag to highlight in Claude, then press the Gloss key)"
+    );
     return null;
   }
 

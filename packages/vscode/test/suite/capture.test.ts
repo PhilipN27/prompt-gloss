@@ -53,16 +53,52 @@ suite("Capture and card persistence", () => {
     await rm(join(workspaceRoot(), ".gloss"), { recursive: true, force: true });
   });
 
-  test("rejects a stale clipboard when the active terminal has no selection", async () => {
+  test("uses the clipboard as the span when the terminal has no native selection", async () => {
+    // Claude Code's mouse-mode TUI never yields a native terminal selection; it
+    // auto-copies the user's drag-selection to the clipboard. With no native
+    // selection, that clipboard content is the span — and the clipboard is left
+    // untouched afterward.
     const cardService = new CardService();
     const originalClipboard = await vscode.env.clipboard.readText();
-    const staleClipboard = "stale clipboard text";
+    const selection = "reconciliation";
     const provenance = createProvenance();
-    const terminal = vscode.window.createTerminal("Gloss no-selection test");
+    const terminal = vscode.window.createTerminal("Gloss clipboard-selection test");
 
     try {
       await showTerminal(terminal);
-      await vscode.env.clipboard.writeText(staleClipboard);
+      await vscode.env.clipboard.writeText(selection);
+
+      const captureContext = await captureSelection(
+        provenance.tracker,
+        cardService,
+        1
+      );
+
+      assert.ok(captureContext, "expected a capture context from the clipboard selection");
+      assert.equal(captureContext.source.span, selection);
+      assert.equal(captureContext.source.origin, "vscode-terminal");
+      assert.equal(captureContext.draft.term, selection);
+      assert.equal(await vscode.env.clipboard.readText(), selection);
+      // Capture only builds the draft; nothing is persisted until the panel saves.
+      assert.deepEqual(await new CardStore(workspaceRoot()).list(), []);
+    } finally {
+      terminal.dispose();
+      for (const subscription of provenance.subscriptions.reverse()) {
+        subscription.dispose();
+      }
+      await vscode.env.clipboard.writeText(originalClipboard);
+    }
+  });
+
+  test("returns null when there is neither a native selection nor clipboard text", async () => {
+    const cardService = new CardService();
+    const originalClipboard = await vscode.env.clipboard.readText();
+    const provenance = createProvenance();
+    const terminal = vscode.window.createTerminal("Gloss empty-capture test");
+
+    try {
+      await showTerminal(terminal);
+      await vscode.env.clipboard.writeText("");
 
       const captureContext = await captureSelection(
         provenance.tracker,
@@ -71,7 +107,7 @@ suite("Capture and card persistence", () => {
       );
 
       assert.equal(captureContext, null);
-      assert.equal(await vscode.env.clipboard.readText(), staleClipboard);
+      assert.equal(await vscode.env.clipboard.readText(), "");
       assert.deepEqual(await new CardStore(workspaceRoot()).list(), []);
     } finally {
       terminal.dispose();
