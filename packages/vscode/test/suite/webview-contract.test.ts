@@ -8,6 +8,8 @@ suite("Webview to host contract", () => {
   test("accepts every valid webview message and rejects malformed payloads", () => {
     const valid: unknown[] = [
       { type: "ready" },
+      { type: "refresh" },
+      { type: "edit", slug: "federated-brewing" },
       { type: "close", id: 1 },
       { type: "delete", id: 2, slug: "federated-brewing" },
       {
@@ -20,6 +22,9 @@ suite("Webview to host contract", () => {
       null,
       {},
       { type: "unknown" },
+      { type: "edit" },
+      { type: "edit", slug: "" },
+      { type: "edit", slug: 42 },
       { type: "close" },
       { type: "close", id: 0 },
       { type: "delete" },
