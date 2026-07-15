@@ -13,6 +13,7 @@ import { runAdd } from "./commands/add.js";
 import { runLog } from "./commands/log.js";
 import { runDoctor } from "./commands/doctor.js";
 import { runWeb } from "./commands/web.js";
+import { runCompanion } from "./companion/index.js";
 
 const USAGE = `prompt-gloss — gloss any word in your prompt
 
@@ -23,6 +24,7 @@ Usage:
   prompt-gloss log [-n <count>] [--project <dir>]
   prompt-gloss doctor [--settings-file <path>] [--project <dir>]
   prompt-gloss web [--port <port>] [--project <dir>]
+  prompt-gloss companion [--project <dir>] [--install-autostart]
 `;
 
 const VALUE_FLAGS = new Set(["--project", "--settings-file", "--body", "--body-file", "--port", "-n", "--alias"]);
@@ -32,7 +34,8 @@ const KNOWN_FLAGS: Record<string, Set<string>> = {
   add: new Set(["--project", "--alias", "--body", "--body-file"]),
   log: new Set(["--project", "-n"]),
   doctor: new Set(["--project", "--settings-file"]),
-  web: new Set(["--project", "--port"])
+  web: new Set(["--project", "--port"]),
+  companion: new Set(["--project", "--install-autostart"])
 };
 
 interface ParsedArgs {
@@ -155,6 +158,18 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       const port = positiveInt(args.flags.get("--port"), "--port");
       await runWeb({ projectDir, ...(port !== undefined ? { port } : {}), log });
       return 0; // keeps running via the open server handle
+    }
+    case "companion": {
+      // The companion must NOT inherit the cwd default: an absent --project
+      // means "no project configured" (→ the first-hotkey picker), never
+      // "write cards under wherever the daemon was launched" (council-pinned).
+      const explicitProject = typeof projectFlag === "string" ? projectDir : undefined;
+      await runCompanion({
+        ...(explicitProject ? { projectDir: explicitProject } : {}),
+        installAutostart: args.flags.has("--install-autostart"),
+        log
+      });
+      return 0; // keeps running via the hotkey registration + server handle
     }
     default:
       // parseArgs already rejected unknown commands.

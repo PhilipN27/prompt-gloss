@@ -81,6 +81,9 @@ describe("doctor", () => {
     await runInit({ projectDir: dir, homeDir: mkdtempSync(join(tmpdir(), "gloss-home-")) });
     const healthy = await runDoctor({ projectDir: dir });
     expect(healthy.ok).toBe(true);
+    // Companion capture is reported for this OS/session (TERMINAL.md §9.4) and
+    // is informational — an unavailable companion never fails doctor.
+    expect(healthy.report).toMatch(/companion capture/);
 
     // Stale bundle: file differs from the shipped one.
     writeFileSync(join(dir, ".gloss", "hook", "gloss-hook.cjs"), "stale");
