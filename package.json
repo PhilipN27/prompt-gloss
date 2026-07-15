@@ -11,7 +11,7 @@
   },
   "packageManager": "pnpm@11.1.1",
   "pnpm": {
-    "onlyBuiltDependencies": ["esbuild"],
+    "onlyBuiltDependencies": ["esbuild", "uiohook-napi"],
     "ignoredBuiltDependencies": ["@vscode/vsce-sign", "keytar"]
   },
   "scripts": {
