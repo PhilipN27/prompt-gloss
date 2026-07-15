@@ -44,7 +44,11 @@
 .gloss-panel__field select {
   font: inherit;
   font-size: 0.85rem;
-  color: var(--gloss-text);
+  /* Fall back to the panel surface tokens so the web app is unchanged; the
+     VS Code webview maps these to --vscode-input-* so text stays legible on
+     the editor's input background instead of an unthemed white default. */
+  color: var(--gloss-input-text, var(--gloss-text));
+  background: var(--gloss-input-bg, var(--gloss-bg));
   padding: 0.4rem;
   border: 1px solid var(--gloss-border);
   border-radius: 5px;

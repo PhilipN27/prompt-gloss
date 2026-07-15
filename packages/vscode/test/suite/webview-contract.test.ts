@@ -69,6 +69,8 @@ suite("Webview to host contract", () => {
       "--gloss-border: var(--vscode-panel-border)",
       "--gloss-text: var(--vscode-foreground)",
       "--gloss-text-muted: var(--vscode-descriptionForeground)",
+      "--gloss-input-bg: var(--vscode-input-background)",
+      "--gloss-input-text: var(--vscode-input-foreground)",
       "--gloss-accent: var(--vscode-button-background)",
       "--gloss-danger: var(--vscode-errorForeground)"
     ];
