@@ -1,7 +1,7 @@
 {
   "name": "gloss-terminal",
   "displayName": "Gloss Terminal",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Attach persistent Gloss context cards to integrated-terminal selections.",
   "license": "MIT",
   "publisher": "prompt-gloss",
@@ -28,14 +28,14 @@
         "command": "gloss.captureSelection",
         "key": "ctrl+alt+g",
         "mac": "cmd+alt+g",
-        "when": "terminalFocus && terminalTextSelected"
+        "when": "terminalFocus"
       }
     ],
     "menus": {
       "terminal/context": [
         {
           "command": "gloss.captureSelection",
-          "when": "terminalFocus && terminalTextSelected"
+          "when": "terminalFocus"
         }
       ]
     },

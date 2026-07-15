@@ -352,27 +352,47 @@ does not depend on model compliance.
 
 - Command `gloss.captureSelection` ("Gloss: attach context to selection").
 - Keybinding: `ctrl+alt+g` / `cmd+alt+g` (chosen to avoid the taken
-  `ctrl+shift+g` SCM default), `"when": "terminalFocus && terminalTextSelected"`.
-- Menu: `terminal/context` entry, same command, same `when` — secondary
-  affordance only (§2.3 rightClickBehavior caveat; the README shows the
+  `ctrl+shift+g` SCM default), `"when": "terminalFocus"`. **NOT** gated on
+  `terminalTextSelected`: Claude Code's TUI mouse reporting (v2.1.150+) consumes
+  the drag, so no native terminal selection is ever registered — that gate would
+  never latch and the key would never fire. Capture reads the clipboard instead
+  (§7.2).
+- Menu: `terminal/context` entry, same command, `"when": "terminalFocus"` —
+  secondary affordance only (§2.3 rightClickBehavior caveat; the README shows the
   keybinding first).
 - View: `gloss.cardPanel` — a `WebviewView` in the **panel area** (terminal's
   home), `retainContextWhenHidden: true`.
 
 ### 7.2 Capture sequence
 
-1. Save `env.clipboard.readText()` (the user's clipboard).
-2. `commands.executeCommand("workbench.action.terminal.copySelection")`.
-3. Read the clipboard → `span`; **restore** the saved clipboard.
+Claude Code's fullscreen TUI enables mouse reporting (v2.1.150+): a drag never
+produces a native terminal selection — Claude consumes the mouse events and
+auto-copies the drag-selection to the system clipboard. The clipboard is
+therefore the selection channel for the primary use case; `copySelection` only
+yields text in a plain shell or when mouse reporting is off. Capture reads the
+clipboard first and treats `copySelection` as a fallback:
+
+1. Read `env.clipboard.readText()` → `clipboard` (Claude's auto-copied
+   selection, if the user just dragged).
+2. Probe for a native selection: write a unique sentinel,
+   `commands.executeCommand("workbench.action.terminal.copySelection")`, re-read
+   — a changed clipboard is a native selection, an unchanged sentinel means
+   none. **Restore** `clipboard` either way.
+3. `span` = the native selection if present, else `clipboard`
+   (`resolveCaptureSpan`, `capture-span.ts`, unit-tested). Empty both → prompt
+   the user to select.
 4. Look up `span` in the rolling provenance buffer (§7.3) → `message` excerpt.
 5. Reveal the card panel, prefilled. If the span matches an existing card
    (same match semantics as v1's `POST /api/match`, but via core in-process),
    open in edit mode.
 
-The clipboard round-trip is the stable-API cost of rung 1 (§2.3). It is
-save/restored within milliseconds and documented. When `Terminal.selection`
-(proposed) ships stable, capture upgrades to a direct read — ROADMAP.md
-watchpoint.
+Any non-empty clipboard is accepted as the span (not freshness-gated): the panel
+is a review step, so a stale prefill is visible and correctable, whereas an
+equality-based freshness guard would wrongly reject re-selecting the same word. A
+robust freshness signal needs the OS clipboard sequence number, which the
+sandboxed extension can't read — a follow-up (the companion does this natively,
+§8.2). When `Terminal.selection` (proposed) ships stable, capture can add a
+direct read — ROADMAP.md watchpoint.
 
 ### 7.3 Provenance buffer
 
